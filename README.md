@@ -1,3 +1,12 @@
+---
+title: Media Downloader Bot
+emoji: 📥
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # 📥 Media Downloader Bot v3.0
 
 Telegram bot for downloading media from YouTube, Instagram, TikTok, and other platforms without watermarks.

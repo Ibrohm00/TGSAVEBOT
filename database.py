@@ -1,120 +1,133 @@
-import aiosqlite
+
 import logging
-import os
-from datetime import datetime
-from typing import Optional, List, Tuple
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple
+from motor.motor_asyncio import AsyncIOMotorClient
 
 from config import config
 
+# Logger setup
 logger = logging.getLogger(__name__)
 
-DB_PATH = config.db_path
+# MongoDB Client
+client = AsyncIOMotorClient(config.mongo_uri)
+db = client[config.db_name]
+users_col = db['users']
+settings_col = db['settings']
 
 async def init_db():
-    """Ma'lumotlar bazasini yaratish"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Users table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                full_name TEXT,
-                joined_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_active BOOLEAN DEFAULT 1
-            )
-        """)
+    """Ma'lumotlar bazasini tekshirish (MongoDB da o'zi avtomatik)"""
+    try:
+        # Ping the database
+        await client.admin.command('ping')
+        logger.info("✅ MongoDB ga ulanish muvaffaqiyatli!")
         
-        # Settings table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                user_id INTEGER PRIMARY KEY,
-                video_quality TEXT DEFAULT '720p',
-                audio_quality TEXT DEFAULT '128k',
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        """)
+        # Index yaratish (tez ishlashi uchun)
+        await users_col.create_index("user_id", unique=True)
+        await settings_col.create_index("user_id", unique=True)
         
-        await db.commit()
-        logger.info("Database initialized")
+    except Exception as e:
+        logger.error(f"❌ MongoDB ga ulanishda xatolik: {e}")
 
 async def add_user(user_id: int, username: str = None, full_name: str = None):
-    """Yangi foydalanuvchi qo'shish"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT OR IGNORE INTO users (user_id, username, full_name)
-            VALUES (?, ?, ?)
-        """, (user_id, username, full_name))
+    """Yangi foydalanuvchi qo'shish yoki yangilash"""
+    try:
+        user_data = {
+            "user_id": user_id,
+            "username": username,
+            "full_name": full_name,
+            "is_active": True,
+            "last_active": datetime.now()
+        }
         
-        # Update info if exists
-        await db.execute("""
-            UPDATE users 
-            SET username = ?, full_name = ?, is_active = 1
-            WHERE user_id = ?
-        """, (username, full_name, user_id))
+        # User borligini tekshirish va yangilash
+        existing_user = await users_col.find_one({"user_id": user_id})
         
-        # Create default settings
-        await db.execute("""
-            INSERT OR IGNORE INTO settings (user_id)
-            VALUES (?)
-        """, (user_id,))
-        
-        await db.commit()
+        if existing_user:
+            await users_col.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "username": username, 
+                    "full_name": full_name, 
+                    "is_active": True,
+                    "last_active": datetime.now()
+                }}
+            )
+        else:
+            user_data["joined_date"] = datetime.now()
+            await users_col.insert_one(user_data)
+            
+            # Default settings
+            await settings_col.insert_one({
+                "user_id": user_id,
+                "video_quality": "720p",
+                "audio_quality": "128k"
+            })
+            
+    except Exception as e:
+        logger.error(f"Error adding user {user_id}: {e}")
 
-async def get_settings(user_id: int) -> dict:
+async def get_settings(user_id: int) -> Dict:
     """Foydalanuvchi sozlamalarini olish"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT video_quality, audio_quality FROM settings WHERE user_id = ?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return {'video_quality': row[0], 'audio_quality': row[1]}
-            return {'video_quality': '720p', 'audio_quality': '128k'}
+    try:
+        settings = await settings_col.find_one({"user_id": user_id})
+        if settings:
+            return settings
+        
+        # Agar yo'q bo'lsa default qaytarish
+        return {"video_quality": "720p", "audio_quality": "128k"}
+    except Exception as e:
+        logger.error(f"Error getting settings for {user_id}: {e}")
+        return {"video_quality": "720p", "audio_quality": "128k"}
 
 async def update_settings(user_id: int, key: str, value: str):
     """Sozlamalarni yangilash"""
-    valid_keys = ['video_quality', 'audio_quality']
-    if key not in valid_keys:
-        return
-        
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(f"UPDATE settings SET {key} = ? WHERE user_id = ?", (value, user_id))
-        await db.commit()
+    try:
+        await settings_col.update_one(
+            {"user_id": user_id},
+            {"$set": {key: value}},
+            upsert=True
+        )
+    except Exception as e:
+        logger.error(f"Error updating settings for {user_id}: {e}")
 
 async def get_users_count() -> int:
-    """Foydalanuvchilar sonini olish"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as cursor:
-            return (await cursor.fetchone())[0]
-
-async def get_all_users() -> List[int]:
-    """Barcha foydalanuvchilar ID sini olish"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM users WHERE is_active = 1") as cursor:
-            return [row[0] for row in await cursor.fetchall()]
-
-async def set_user_active(user_id: int, is_active: bool):
-    """Foydalanuvchi statusini o'zgartirish"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET is_active = ? WHERE user_id = ?", (is_active, user_id))
-        await db.commit()
-
-async def get_new_users_today() -> int:
-    """Bugungi yangi foydalanuvchilar soni"""
-    today = datetime.now().date()
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users WHERE date(joined_date) = date(?)", (today,)) as cursor:
-            return (await cursor.fetchone())[0]
+    """Jami foydalanuvchilar soni"""
+    return await users_col.count_documents({})
 
 async def get_active_users_count() -> int:
     """Aktiv foydalanuvchilar soni"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users WHERE is_active = 1") as cursor:
-            return (await cursor.fetchone())[0]
+    return await users_col.count_documents({"is_active": True})
 
-async def get_last_users(limit: int = 10) -> List[Tuple[int, str, str]]:
+async def get_new_users_today() -> int:
+    """Bugungi yangi foydalanuvchilar"""
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return await users_col.count_documents({"joined_date": {"$gte": today}})
+
+async def get_all_users() -> List[int]:
+    """Barcha user ID larini olish (broadcast uchun)"""
+    cursor = users_col.find({}, {"user_id": 1})
+    users = await cursor.to_list(length=None)
+    return [user['user_id'] for user in users]
+
+async def get_last_users(limit: int = 10) -> List[Tuple[int, str, str, str]]:
     """Oxirgi qo'shilgan foydalanuvchilar"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT user_id, username, full_name, joined_date FROM users ORDER BY joined_date DESC LIMIT ?", 
-            (limit,)
-        ) as cursor:
-            return await cursor.fetchall()
+    cursor = users_col.find().sort("joined_date", -1).limit(limit)
+    users = await cursor.to_list(length=limit)
+    
+    result = []
+    for user in users:
+        result.append((
+            user['user_id'],
+            user.get('username', ''),
+            user.get('full_name', 'Unknown'),
+            user.get('joined_date', datetime.now())
+        ))
+    return result
+
+async def set_user_active(user_id: int, is_active: bool):
+    """User statusini o'zgartirish (bloklaganda)"""
+    await users_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_active": is_active}}
+    )

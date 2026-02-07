@@ -19,7 +19,9 @@ class BotConfig:
     # API
     token: str = os.getenv("BOT_TOKEN", "")
     admin_ids: List[int] = None
-    db_path: str = "bot.db"
+    # MongoDB
+    mongo_uri: str = os.getenv("MONGO_URI", "mongodb+srv://ibrohm135:mansur5754@cluster0.intw8qq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+    db_name: str = "media_downloader_bot"
     
     # Limitlar
     max_video_size_mb: int = 50      # Telegram limit

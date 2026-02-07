@@ -833,7 +833,9 @@ async def main():
     class IPv4Session(AiohttpSession):
         async def create_session(self) -> ClientSession:
             connector = TCPConnector(family=socket.AF_INET, ssl=True)
-            return ClientSession(connector=connector, json_dumps=self.json_dumps, json_loads=self.json_loads)
+            # aiohttp ClientSession uses 'json_serialize', not 'json_dumps'
+            # json_loads is not passed to ClientSession, aiogram handles it
+            return ClientSession(connector=connector, json_serialize=self.json_dumps)
 
     session = IPv4Session()
     

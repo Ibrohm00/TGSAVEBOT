@@ -54,6 +54,8 @@ try:
     original_getaddrinfo = socket.getaddrinfo
     resolver = dns.resolver.Resolver()
     resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+    # TCP ni yoqish (UDP bloklangan bo'lishi mumkin)
+    resolver.use_tcp = True
     
     def custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
         # Faqat domen nomlarini resolve qilish (IP larni emas)
@@ -69,24 +71,19 @@ try:
             
         try:
             # IPv4 ni afzal ko'rish (A record)
-            # dnspython avtomatik ravishda CNAME larni ham hal qiladi
             answers = resolver.resolve(host, 'A')
             ip = answers[0].to_text()
-            # logger.debug(f"🔍 Resolved {host} -> {ip} (Google DNS)")
-            
             # Asl manzilni IP bilan almashtirib chaqirish
-            # Hostnameni IP ga o'zgartiramiz, qolgan parametrlar o'zgarishsiz qoladi
             return original_getaddrinfo(ip, port, family, type, proto, flags)
-        except Exception as e:
-            # Xatolik bo'lsa (yoki domen topilmasa) original funksiyaga qaytish
-            # System resolver balki uddalar (yoki /etc/hosts da bordir)
+        except Exception:
+            # Fallback
             return original_getaddrinfo(host, port, family, type, proto, flags)
             
     socket.getaddrinfo = custom_getaddrinfo
-    logger.info("✅ socket.getaddrinfo patched with Google DNS!")
+    logger.info("✅ socket.getaddrinfo patched with Google DNS (TCP enabled)!")
     
 except ImportError:
-    logger.warning("⚠️ dnspython not found! DNS patching skipped. Please install dnspython.")
+    logger.warning("⚠️ dnspython not found! DNS patching skipped.")
 except Exception as e:
     logger.error(f"❌ DNS Patching error: {e}")
 # --- DNS MONKEY PATCH END ---
@@ -94,26 +91,27 @@ except Exception as e:
 
 # Bot va Router
 # Bot initialization moved to main() to fix Event Loop error
-# from aiogram.client.session.aiohttp import AiohttpSession
-# from aiohttp import TCPConnector
-# import socket
 
-# Global connector/session/bot removed from here
-# They will be initialized in main()
 
 # --- IPv4 Session (Singleton) ---
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiohttp import TCPConnector, ClientSession as AioHttpClientSession
+from aiohttp.resolver import AsyncResolver
 
 class IPv4Session(AiohttpSession):
     _singleton_session: Optional[AioHttpClientSession] = None
 
     async def create_session(self) -> AioHttpClientSession:
         if self._singleton_session is None or self._singleton_session.closed:
-            logger.info("🔌 IPv4Session: Creating Singleton ClientSession (Global DNS patched)...")
+            logger.info("🔌 IPv4Session: Creating Singleton ClientSession (AsyncResolver + Google DNS)...")
+            
+            # Explicit Google DNS resolver for aiohttp
+            resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+            
             connector = TCPConnector(
                 family=socket.AF_INET,
                 ssl=True,
+                resolver=resolver,
                 limit=100,
                 ttl_dns_cache=300
             )

@@ -100,6 +100,7 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
                 'quiet': True,
                 'no_warnings': True,
                 'socket_timeout': config.download_timeout,
+                'force_ipv4': True,
             }
         else:
             # Video yuklash - MAKSIMAL SIFAT
@@ -117,6 +118,7 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
                 'postprocessor_args': {
                     'ffmpeg': ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k']
                 },
+                'force_ipv4': True,
             }
         
         # Info olish
@@ -216,6 +218,7 @@ async def download_instagram(url: str) -> DownloadResult:
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
             'merge_output_format': 'mp4',
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -271,6 +274,7 @@ async def download_twitter(url: str) -> DownloadResult:
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
             'merge_output_format': 'mp4',
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -388,6 +392,7 @@ async def download_generic(url: str, platform: str) -> DownloadResult:
             'postprocessor_args': {
                 'ffmpeg': ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k']
             },
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -462,6 +467,7 @@ async def download_soundcloud(url: str) -> DownloadResult:
             'quiet': True,
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -511,6 +517,7 @@ async def download_vk(url: str) -> DownloadResult:
             'quiet': True,
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -574,6 +581,7 @@ async def download_likee(url: str) -> DownloadResult:
             'quiet': True,
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -671,6 +679,7 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
             'quiet': True,
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
+            'force_ipv4': True,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

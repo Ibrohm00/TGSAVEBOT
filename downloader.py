@@ -18,6 +18,13 @@ from config import config, SUPPORTED_PLATFORMS
 
 logger = logging.getLogger(__name__)
 
+def get_connector():
+    """Google va Cloudflare DNS bilan connector"""
+    from aiohttp import TCPConnector, AsyncResolver
+    import socket
+    resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+    return TCPConnector(family=socket.AF_INET, ssl=True, resolver=resolver)
+
 
 @dataclass
 class DownloadResult:
@@ -164,7 +171,7 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
         thumbnail = None
         try:
             thumb_url = f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=get_connector()) as session:
                 async with session.get(thumb_url, timeout=10) as resp:
                     if resp.status == 200:
                         thumbnail = await resp.read()
@@ -628,7 +635,7 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
         if no_watermark:
             try:
                 api_url = f"https://www.tikwm.com/api/?url={url}"
-                async with aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession(connector=get_connector()) as session:
                     async with session.get(api_url, timeout=30) as resp:
                         if resp.status == 200:
                             data = await resp.json()
@@ -712,7 +719,7 @@ async def download_pinterest(url: str) -> DownloadResult:
         temp_dir = tempfile.mkdtemp()
         
         # Pinterest API orqali
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=get_connector()) as session:
             # Pinterest sahifasini olish
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'

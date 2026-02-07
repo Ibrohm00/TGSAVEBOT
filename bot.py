@@ -871,16 +871,24 @@ async def main():
     from aiohttp import TCPConnector, ClientSession, AsyncResolver
     import socket
     
+    def get_dns_resolver():
+        return AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+
     class IPv4Session(AiohttpSession):
         async def create_session(self) -> ClientSession:
+            logger.info("🔌 IPv4Session: Creating new ClientSession with Google DNS...")
             # Use Google and Cloudflare DNS to fix resolution errors
-            resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+            resolver = get_dns_resolver()
             connector = TCPConnector(
                 family=socket.AF_INET, 
                 ssl=True, 
                 resolver=resolver
             )
             return ClientSession(connector=connector, json_serialize=self.json_dumps)
+
+        async def close(self):
+            logger.info("🔌 IPv4Session: Closing session...")
+            await super().close()
 
     session = IPv4Session()
     

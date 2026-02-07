@@ -875,19 +875,31 @@ async def main():
         return AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
 
     class IPv4Session(AiohttpSession):
+        _singleton_session: Optional[ClientSession] = None
+
         async def create_session(self) -> ClientSession:
-            logger.info("🔌 IPv4Session: Creating new ClientSession with Google DNS...")
-            # Use Google and Cloudflare DNS to fix resolution errors
-            resolver = get_dns_resolver()
-            connector = TCPConnector(
-                family=socket.AF_INET, 
-                ssl=True, 
-                resolver=resolver
-            )
-            return ClientSession(connector=connector, json_serialize=self.json_dumps)
+            if self._singleton_session is None or self._singleton_session.closed:
+                logger.info("🔌 IPv4Session: Creating Singleton ClientSession with Google DNS...")
+                resolver = get_dns_resolver()
+                connector = TCPConnector(
+                    family=socket.AF_INET, 
+                    ssl=True, 
+                    resolver=resolver,
+                    limit=100, # Connection limit
+                    ttl_dns_cache=300
+                )
+                self._singleton_session = ClientSession(connector=connector, json_serialize=self.json_dumps)
+            else:
+                logger.info("🔌 IPv4Session: Reusing Singleton ClientSession")
+            
+            return self._singleton_session
 
         async def close(self):
-            logger.info("🔌 IPv4Session: Closing session...")
+            # Only close if explicitly called and we own the session
+            logger.info("🔌 IPv4Session: Close requested")
+            if self._singleton_session and not self._singleton_session.closed:
+                logger.info("🔌 IPv4Session: Closing Singleton session")
+                await self._singleton_session.close()
             await super().close()
 
     session = IPv4Session()

@@ -827,17 +827,21 @@ async def main():
 
     # Force IPv4 via TCPConnector inside the loop!
     from aiogram.client.session.aiohttp import AiohttpSession
-    from aiohttp import TCPConnector, ClientSession
+    from aiohttp import TCPConnector, ClientSession, AsyncResolver
     import socket
     
-    class IPv4Session(AiohttpSession):
+    class CustomResolverSession(AiohttpSession):
         async def create_session(self) -> ClientSession:
-            connector = TCPConnector(family=socket.AF_INET, ssl=True)
-            # aiohttp ClientSession uses 'json_serialize', not 'json_dumps'
-            # json_loads is not passed to ClientSession, aiogram handles it
+            # Use Google and Cloudflare DNS explicitly to bypass local resolver issues
+            resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+            connector = TCPConnector(
+                family=socket.AF_INET, 
+                ssl=True, 
+                resolver=resolver
+            )
             return ClientSession(connector=connector, json_serialize=self.json_dumps)
 
-    session = IPv4Session()
+    session = CustomResolverSession()
     
     # Initialize Bot here
     global bot 

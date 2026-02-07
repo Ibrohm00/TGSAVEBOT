@@ -5,3 +5,4 @@ aiohttp>=3.9.0
 aiofiles>=23.0.0
 instaloader>=4.10.0
 motor>=3.3.0
+aiodns>=3.0.0

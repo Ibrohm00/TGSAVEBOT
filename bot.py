@@ -57,9 +57,6 @@ dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
-dp = Dispatcher()
-router = Router()
-dp.include_router(router)
 
 # User settings cache (Transient state + cached settings)
 user_settings: Dict[int, dict] = {}
@@ -118,7 +115,7 @@ def main_keyboard():
     ])
 
 
-def download_keyboard(url: str, platform: str):
+def download_keyboard(url: str, platform: str, t):
     """Yuklash variantlari (to'liq)"""
     buttons = []
     
@@ -127,22 +124,22 @@ def download_keyboard(url: str, platform: str):
     
     # Video
     if 'video' in supports:
-        buttons.append([InlineKeyboardButton(text="🎬 Video", callback_data="dl:video")])
+        buttons.append([InlineKeyboardButton(text=t("btn_video"), callback_data="dl:video")])
     
     # TikTok uchun no-watermark
     if platform == 'tiktok':
-        buttons.append([InlineKeyboardButton(text="🎬 Video (logosiz)", callback_data="dl:nowm")])
+        buttons.append([InlineKeyboardButton(text=t("btn_video_nowm"), callback_data="dl:nowm")])
     
     # Audio (YouTube, TikTok, SoundCloud, VK, Spotify)
     if 'audio' in supports:
-        buttons.append([InlineKeyboardButton(text="🎵 Audio (MP3)", callback_data="dl:audio")])
+        buttons.append([InlineKeyboardButton(text=t("btn_audio"), callback_data="dl:audio")])
     
-    buttons.append([InlineKeyboardButton(text="❌ Bekor", callback_data="cancel")])
+    buttons.append([InlineKeyboardButton(text=t("btn_cancel"), callback_data="cancel")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def quality_keyboard():
+def quality_keyboard(t):
     """Sifat tanlash"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -153,7 +150,7 @@ def quality_keyboard():
             InlineKeyboardButton(text="720p ✓", callback_data="q:720p"),
             InlineKeyboardButton(text="1080p", callback_data="q:1080p"),
         ],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back")]
+        [InlineKeyboardButton(text=t("btn_back"), callback_data="back")]
     ])
 
 
@@ -223,7 +220,7 @@ async def safe_delete(msg: Message) -> bool:
 # ============== Commands ==============
 
 @router.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, t):
     """Start buyrug'i"""
     # Foydalanuvchini bazaga qo'shish
     await add_user(
@@ -236,38 +233,79 @@ async def cmd_start(message: Message):
         logo = FSInputFile("logo.png")
         await message.answer_photo(
             logo,
-            caption=MESSAGES['start'],
+            caption=t("start_welcome", name=escape_md(message.from_user.full_name)),
             parse_mode=ParseMode.MARKDOWN_V2
         )
     except:
         # Rasm topilmasa oddiy xabar
         await message.answer(
-            MESSAGES['start'],
+            t("start_welcome", name=escape_md(message.from_user.full_name)),
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
+@router.message(Command("lang"))
+async def cmd_lang(message: Message, t):
+    """Tilni o'zgartirish"""
+    await message.answer(
+        t("select_language"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang:uz"),
+                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru"),
+                InlineKeyboardButton(text="🇺🇸 English", callback_data="lang:en")
+            ],
+            [InlineKeyboardButton(text="❌", callback_data="delete_msg")]
+        ])
+    )
+
+@router.callback_query(F.data.startswith("lang:"))
+async def handle_lang_callback(callback: CallbackQuery):
+    """Tilni tanlash"""
+    lang_code = callback.data.split(":")[1]
+    from database import set_user_language
+    await set_user_language(callback.from_user.id, lang_code)
+    
+    # Manually load t for new language
+    from i18n_middleware import t as get_t
+    new_t = lambda key, **kwargs: get_t(key, lang_code, **kwargs)
+    
+    await callback.answer(new_t("language_selected"))
+    await safe_delete(callback.message)
+    
+    try:
+        logo = FSInputFile("logo.png")
+        await callback.message.answer_photo(
+            logo,
+            caption=new_t("start_welcome", name=escape_md(callback.from_user.full_name)),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    except:
+        await callback.message.answer(
+            new_t("start_welcome", name=escape_md(callback.from_user.full_name)),
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
 
 @router.message(Command("help"))
-async def cmd_help(message: Message):
+async def cmd_help(message: Message, t):
     """Yordam"""
     await message.answer(
-        MESSAGES['help'],
+        t("help"),
         parse_mode=ParseMode.MARKDOWN_V2
     )
 
 
 @router.message(Command("settings"))
-async def cmd_settings(message: Message):
+async def cmd_settings(message: Message, t):
     """Sozlamalar"""
     settings = await get_user_settings(message.from_user.id)
-    text = MESSAGES['settings'].format(
-        video_quality=settings['video_quality'],
-        audio_quality=settings['audio_quality']
-    )
+    text = t("settings") + "\n\n" + \
+           f"📹 Video: {settings['video_quality']}\n" + \
+           f"🎵 Audio: {settings['audio_quality']}"
+
     await message.answer(
         text,
         parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=quality_keyboard()
+        reply_markup=quality_keyboard(t)
     )
 
 
@@ -500,8 +538,10 @@ async def process_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
 
 # ============== Link Handler ==============
 
+# ============== Link Handler ==============
+
 @router.message(F.text)
-async def handle_message(message: Message):
+async def handle_message(message: Message, t):
     """Xabarlarni qayta ishlash (optimized)"""
     user_id = message.from_user.id
     text = message.text.strip()
@@ -516,7 +556,7 @@ async def handle_message(message: Message):
     # Rate limit tekshirish
     if not check_rate_limit(user_id):
         await message.answer(
-            "⏳ Iltimos, biroz kuting\\.\\.\\.",
+            t("rate_limit"),
             parse_mode=ParseMode.MARKDOWN_V2
         )
         return
@@ -526,7 +566,7 @@ async def handle_message(message: Message):
     
     if not url:
         await message.answer(
-            MESSAGES['error_no_link'],
+            t("error_link"),
             parse_mode=ParseMode.MARKDOWN_V2
         )
         return
@@ -536,7 +576,7 @@ async def handle_message(message: Message):
     
     if not platform:
         await message.answer(
-            MESSAGES['error_unsupported'],
+            t("error_generic"), # Yoki error_unsupported agar bo'lsa
             parse_mode=ParseMode.MARKDOWN_V2
         )
         return
@@ -560,15 +600,15 @@ async def handle_message(message: Message):
     
     if needs_choice:
         await message.answer(
-            f"{emoji} *{escape_md(name)}* aniqlandi\\!\n\nNima yuklamoqchisiz?",
+            t("what_to_download", emoji=emoji, name=escape_md(name)),
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=download_keyboard(url, platform)
+            reply_markup=download_keyboard(url, platform, t)
         )
         return
     
     # To'g'ridan-to'g'ri yuklash
     media_type = supports[0] if supports else 'video'
-    await process_download(message, url, platform, media_type)
+    await process_download(message, url, platform, media_type, t=t)
 
 
 async def process_download(
@@ -576,6 +616,7 @@ async def process_download(
     url: str, 
     platform: str, 
     media_type: str, 
+    t,
     no_watermark: bool = False
 ):
     """
@@ -590,7 +631,7 @@ async def process_download(
     
     # Loading xabar
     loading_msg = await message.answer(
-        f"{emoji} *{escape_md(name)}*\n\n⏳ Tayyorlanmoqda\\.\\.\\.",
+        f"{emoji} *{escape_md(name)}*\n\n{t('preparing')}",
         parse_mode=ParseMode.MARKDOWN_V2
     )
     
@@ -618,7 +659,7 @@ async def process_download(
         # Yuklash boshlandi
         await safe_edit(
             loading_msg,
-            f"{emoji} *{escape_md(name)}*\n\n📥 Yuklanmoqda\\.\\.\\.",
+            f"{emoji} *{escape_md(name)}*\n\n{t('downloading')}",
             parse_mode=ParseMode.MARKDOWN_V2
         )
         
@@ -633,7 +674,7 @@ async def process_download(
                 logger.info(f"Retry download: {platform}")
         
         if not result.success:
-            error_text = result.error or "Noma'lum xato"
+            error_text = result.error or t("error_unknown")
             await safe_edit(
                 loading_msg,
                 f"❌ *Xatolik*\n\n{escape_md(error_text)}",
@@ -644,7 +685,7 @@ async def process_download(
         # Uploading
         await safe_edit(
             loading_msg,
-            f"{emoji} *{escape_md(name)}*\n\n📤 Telegramga yuklanmoqda\\.\\.\\.",
+            f"{emoji} *{escape_md(name)}*\n\n{t('uploading')}",
             parse_mode=ParseMode.MARKDOWN_V2
         )
         
@@ -715,7 +756,7 @@ async def process_download(
 # ============== Callbacks ==============
 
 @router.callback_query(F.data.startswith("dl:"))
-async def handle_download(callback: CallbackQuery):
+async def handle_download(callback: CallbackQuery, t):
     """Yuklash callback (optimized)"""
     await callback.answer()
     
@@ -729,7 +770,7 @@ async def handle_download(callback: CallbackQuery):
     if not url:
         await safe_edit(
             callback.message,
-            "⚠️ Link eskirgan\\. Qaytadan yuboring\\.",
+            t("link_expired"),
             parse_mode=ParseMode.MARKDOWN_V2
         )
         return
@@ -746,11 +787,11 @@ async def handle_download(callback: CallbackQuery):
     media_type = 'video' if action in ['video', 'nowm'] else 'audio'
     
     # Yuklash
-    await process_download(callback.message, url, platform, media_type, no_watermark)
+    await process_download(callback.message, url, platform, media_type, t=t, no_watermark=no_watermark)
 
 
 @router.callback_query(F.data.startswith("q:"))
-async def handle_quality(callback: CallbackQuery):
+async def handle_quality(callback: CallbackQuery, t):
     """Sifat tanlash"""
     quality = callback.data.split(":")[1]
     user_id = callback.from_user.id
@@ -762,42 +803,42 @@ async def handle_quality(callback: CallbackQuery):
     
     await callback.answer(f"✅ Sifat: {quality}")
     
-    text = MESSAGES['settings'].format(
-        video_quality=settings['video_quality'],
-        audio_quality=settings['audio_quality']
-    )
+    text = t("settings") + "\n\n" + \
+           f"📹 Video: {settings['video_quality']}\n" + \
+           f"🎵 Audio: {settings['audio_quality']}"
+           
     await safe_edit(
         callback.message,
         text,
         parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=quality_keyboard()
+        reply_markup=quality_keyboard(t)
     )
 
 
 @router.callback_query(F.data == "settings")
-async def handle_settings(callback: CallbackQuery):
+async def handle_settings(callback: CallbackQuery, t):
     """Sozlamalar callback"""
     await callback.answer()
     settings = await get_user_settings(callback.from_user.id)
-    text = MESSAGES['settings'].format(
-        video_quality=settings['video_quality'],
-        audio_quality=settings['audio_quality']
-    )
+    text = t("settings") + "\n\n" + \
+           f"📹 Video: {settings['video_quality']}\n" + \
+           f"🎵 Audio: {settings['audio_quality']}"
+
     await safe_edit(
         callback.message,
         text,
         parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=quality_keyboard()
+        reply_markup=quality_keyboard(t)
     )
 
 
 @router.callback_query(F.data == "help")
-async def handle_help(callback: CallbackQuery):
+async def handle_help(callback: CallbackQuery, t):
     """Yordam callback"""
     await callback.answer()
     await safe_edit(
         callback.message,
-        MESSAGES['help'],
+        t("help"),
         parse_mode=ParseMode.MARKDOWN_V2
     )
 
@@ -847,6 +888,10 @@ async def main():
     global bot 
     bot = Bot(token=config.token, session=session)
     
+    # Middleware registratsiyasi
+    from i18n_middleware import I18nMiddleware
+    dp.update.middleware(I18nMiddleware())
+
     # Middleware registratsiyasi (Admin va Message/Callback uchun)
     from middlewares import SubscriptionMiddleware
     dp.update.middleware(SubscriptionMiddleware())

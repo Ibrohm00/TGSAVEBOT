@@ -55,6 +55,7 @@ async def add_user(user_id: int, username: str = None, full_name: str = None):
             )
         else:
             user_data["joined_date"] = datetime.now()
+            user_data["language"] = "uz" # Default language
             await users_col.insert_one(user_data)
             
             # Default settings
@@ -131,6 +132,21 @@ async def set_user_active(user_id: int, is_active: bool):
         {"user_id": user_id},
         {"$set": {"is_active": is_active}}
     )
+
+async def set_user_language(user_id: int, lang: str):
+    """Foydalanuvchi tilini o'zgartirish"""
+    await users_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"language": lang}},
+        upsert=True
+    )
+
+async def get_user_language(user_id: int) -> str:
+    """Foydalanuvchi tilini olish"""
+    user = await users_col.find_one({"user_id": user_id})
+    if user and "language" in user:
+        return user["language"]
+    return "uz" # Default
 
 # ============== Channels (Sponsorship) ==============
 

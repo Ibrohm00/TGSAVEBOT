@@ -868,17 +868,15 @@ async def main():
 
     # Force IPv4 via TCPConnector inside the loop!
     from aiogram.client.session.aiohttp import AiohttpSession
-    from aiohttp import TCPConnector, ClientSession, AsyncResolver
+    from aiohttp import TCPConnector, ClientSession
     import socket
     
     class CustomResolverSession(AiohttpSession):
         async def create_session(self) -> ClientSession:
-            # Use Google and Cloudflare DNS explicitly to bypass local resolver issues
-            resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+            # Force IPv4 to fix connection issues in some environments (like HF Spaces)
             connector = TCPConnector(
                 family=socket.AF_INET, 
                 ssl=True, 
-                resolver=resolver
             )
             return ClientSession(connector=connector, json_serialize=self.json_dumps)
 

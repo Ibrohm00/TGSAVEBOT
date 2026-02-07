@@ -130,6 +130,10 @@ dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
+# Register i18n middleware
+from i18n_middleware import I18nMiddleware
+dp.update.middleware(I18nMiddleware())
+
 
 # User settings cache (Transient state + cached settings)
 user_settings: Dict[int, dict] = {}

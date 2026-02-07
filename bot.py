@@ -824,13 +824,18 @@ async def main():
     # DB ni ishga tushirish
     await init_db()
     
+
     # Force IPv4 via TCPConnector inside the loop!
     from aiogram.client.session.aiohttp import AiohttpSession
-    from aiohttp import TCPConnector
+    from aiohttp import TCPConnector, ClientSession
     import socket
     
-    connector = TCPConnector(family=socket.AF_INET, ssl=True)
-    session = AiohttpSession(connector=connector)
+    class IPv4Session(AiohttpSession):
+        async def create_session(self) -> ClientSession:
+            connector = TCPConnector(family=socket.AF_INET, ssl=True)
+            return ClientSession(connector=connector, json_dumps=self.json_dumps, json_loads=self.json_loads)
+
+    session = IPv4Session()
     
     # Initialize Bot here
     global bot 

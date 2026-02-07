@@ -103,12 +103,12 @@ except Exception as e:
 
 # --- IPv4 Session (Singleton) ---
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp import TCPConnector, ClientSession
+from aiohttp import TCPConnector, ClientSession as AioHttpClientSession
 
 class IPv4Session(AiohttpSession):
-    _singleton_session: Optional[ClientSession] = None
+    _singleton_session: Optional[AioHttpClientSession] = None
 
-    async def create_session(self) -> ClientSession:
+    async def create_session(self) -> AioHttpClientSession:
         if self._singleton_session is None or self._singleton_session.closed:
             logger.info("🔌 IPv4Session: Creating Singleton ClientSession (Global DNS patched)...")
             connector = TCPConnector(
@@ -117,7 +117,7 @@ class IPv4Session(AiohttpSession):
                 limit=100,
                 ttl_dns_cache=300
             )
-            self._singleton_session = ClientSession(connector=connector, json_serialize=self.json_dumps)
+            self._singleton_session = AioHttpClientSession(connector=connector, json_serialize=self.json_dumps)
         else:
             logger.info("🔌 IPv4Session: Reusing Singleton ClientSession")
 
@@ -131,6 +131,23 @@ class IPv4Session(AiohttpSession):
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
+
+
+# User settings cache (Transient state + cached settings)
+user_settings: Dict[int, dict] = {}
+# ... (rest of file) ...
+# ...
+async def main():
+    await init_db()
+    
+    # Session creation (Singleton)
+    session = IPv4Session()
+    # Pre-create internal session (optional but good for testing)
+    await session.create_session()
+    
+    # Bot init - Pass the WRAPPER 'session', not the internal 'client_session'
+    bot = Bot(token=config.token, session=session)
+    await bot.delete_webhook(drop_pending_updates=True)
 
 
 # User settings cache (Transient state + cached settings)
@@ -1117,10 +1134,11 @@ async def main():
     
     # Session creation (Singleton)
     session = IPv4Session()
-    client_session = await session.create_session()
+    # Pre-create just to initialize singleton
+    await session.create_session()
     
-    # Bot init
-    bot = Bot(token=config.token, session=client_session)
+    # Bot init (Pass the wrapper 'session')
+    bot = Bot(token=config.token, session=session)
     await bot.delete_webhook(drop_pending_updates=True)
     
     # Start Web Server for UptimeRobot

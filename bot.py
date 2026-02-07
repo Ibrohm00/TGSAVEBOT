@@ -847,10 +847,115 @@ async def main():
     global bot 
     bot = Bot(token=config.token, session=session)
     
+    # Middleware registratsiyasi (Admin va Message/Callback uchun)
+    from middlewares import SubscriptionMiddleware
+    dp.update.middleware(SubscriptionMiddleware())
+    
     try:
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
+
+# ============== Subscription Commands ==============
+
+@router.callback_query(F.data == "check_subscription")
+async def handle_check_subscription(callback: CallbackQuery):
+    """Obunani tekshirish (Agar middleware dan o'tsa)"""
+    await callback.answer("✅ Obuna tasdiqlandi! Botdan foydalanishingiz mumkin.", show_alert=True)
+    await safe_delete(callback.message)
+
+# ============== Channel Admin Commands ==============
+
+@router.message(Command("add_channel"))
+async def cmd_add_channel(message: Message):
+    """Kanal qo'shish (Admin)"""
+    if message.from_user.id not in config.admin_ids:
+        return
+
+    # Argumentlarni olish
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer(
+            "⚠️ Kanal ID yoki username kiriting!\n"
+            "Namuna: `/add_channel @kanal_username` yoki `-1001234567890`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    channel_input = parts[1]
+    
+    try:
+        # Kanal ma'lumotlarini olish
+        chat = await bot.get_chat(channel_input)
+        
+        # Bot admin ekanligini tekshirish
+        member = await bot.get_chat_member(chat.id, bot.id)
+        if member.status != ChatMemberStatus.ADMINISTRATOR:
+            await message.answer("❌ Bot ushbu kanalda admin emas!", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        # Bazaga qo'shish
+        from database import add_channel
+        success = await add_channel(
+            channel_id=chat.id,
+            title=chat.title,
+            username=chat.username,
+            invite_link=chat.invite_link or f"https://t.me/{chat.username}"
+        )
+        
+        if success:
+            await message.answer(f"✅ Kanal qo'shildi:\n*{escape_md(chat.title)}*", parse_mode=ParseMode.MARKDOWN_V2)
+        else:
+            await message.answer("❌ Bazaga yozishda xatolik!", parse_mode=ParseMode.MARKDOWN)
+            
+    except Exception as e:
+        await message.answer(f"❌ Xatolik: {e}", parse_mode=ParseMode.MARKDOWN)
+
+async def send_channel_list(message: Message, edit_message: bool = False):
+    """Kanallar ro'yxatini yuborish (yordamchi funksiya)"""
+    from database import get_channels
+    channels = await get_channels()
+    
+    text = "📋 *Ulagan kanallar:*\n\n"
+    keyboard = []
+    
+    if not channels:
+        text = "📂 Kanallar ro'yxati bo'sh."
+    else:
+        for ch in channels:
+            text += f"📢 {escape_md(ch['title'])} (`{ch['channel_id']}`)\n"
+            keyboard.append([InlineKeyboardButton(text=f"🗑 O'chirish: {ch['title']}", callback_data=f"del_ch:{ch['channel_id']}")])
+        
+    keyboard.append([InlineKeyboardButton(text="❌ Yopish", callback_data="delete_msg")])
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    if edit_message:
+        await message.edit_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
+    else:
+        await message.answer(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=markup)
+
+@router.message(Command("channels"))
+async def cmd_list_channels(message: Message):
+    """Kanallar ro'yxati (Admin)"""
+    if message.from_user.id not in config.admin_ids:
+        return
+    await send_channel_list(message)
+
+@router.callback_query(F.data.startswith("del_ch:"))
+async def handle_delete_channel(callback: CallbackQuery):
+    """Kanalni o'chirish"""
+    if callback.from_user.id not in config.admin_ids:
+        return
+        
+    channel_id = int(callback.data.split(":")[1])
+    from database import remove_channel
+    
+    if await remove_channel(channel_id):
+        await callback.answer("✅ Kanal o'chirildi", show_alert=True)
+        # Ro'yxatni yangilash
+        await send_channel_list(callback.message, edit_message=True)
+    else:
+        await callback.answer("❌ Xatolik", show_alert=True)
 
 
 if __name__ == "__main__":

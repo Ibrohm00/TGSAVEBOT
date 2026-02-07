@@ -131,3 +131,45 @@ async def set_user_active(user_id: int, is_active: bool):
         {"user_id": user_id},
         {"$set": {"is_active": is_active}}
     )
+
+# ============== Channels (Sponsorship) ==============
+
+channels_col = db['channels']
+
+async def add_channel(channel_id: int, title: str, username: str, invite_link: str):
+    """Kanal qo'shish (Majburiy obuna uchun)"""
+    try:
+        await channels_col.update_one(
+            {"channel_id": channel_id},
+            {"$set": {
+                "channel_id": channel_id,
+                "title": title,
+                "username": username,
+                "invite_link": invite_link,
+                "added_date": datetime.now()
+            }},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error adding channel {channel_id}: {e}")
+        return False
+
+async def remove_channel(channel_id: int):
+    """Kanalni o'chirish"""
+    try:
+        await channels_col.delete_one({"channel_id": channel_id})
+        return True
+    except Exception as e:
+        logger.error(f"Error removing channel {channel_id}: {e}")
+        return False
+
+async def get_channels() -> List[Dict]:
+    """Barcha kanallarni olish"""
+    try:
+        cursor = channels_col.find({})
+        channels = await cursor.to_list(length=None)
+        return channels
+    except Exception as e:
+        logger.error(f"Error getting channels: {e}")
+        return []

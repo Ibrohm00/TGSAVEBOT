@@ -101,6 +101,7 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
                 'no_warnings': True,
                 'socket_timeout': config.download_timeout,
                 'force_ipv4': True,
+                'user_agent': REAL_USER_AGENT,
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['android', 'ios'],
@@ -124,6 +125,7 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
                     'ffmpeg': ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k']
                 },
                 'force_ipv4': True,
+                'user_agent': REAL_USER_AGENT,
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['android', 'ios'],
@@ -134,6 +136,7 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
         # Info olish (with client spoofing)
         info_opts = {
             'quiet': True,
+            'user_agent': REAL_USER_AGENT,
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android', 'ios'],

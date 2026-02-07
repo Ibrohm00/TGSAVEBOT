@@ -871,16 +871,15 @@ async def main():
     from aiohttp import TCPConnector, ClientSession
     import socket
     
-    class CustomResolverSession(AiohttpSession):
+    class IPv4Session(AiohttpSession):
         async def create_session(self) -> ClientSession:
-            # Force IPv4 to fix connection issues in some environments (like HF Spaces)
             connector = TCPConnector(
                 family=socket.AF_INET, 
                 ssl=True, 
             )
             return ClientSession(connector=connector, json_serialize=self.json_dumps)
 
-    session = CustomResolverSession()
+    session = IPv4Session()
     
     # Initialize Bot here
     global bot 

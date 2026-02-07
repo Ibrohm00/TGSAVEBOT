@@ -43,16 +43,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot va Router
-# Bot va Router (IPv4 forced for HF Spaces)
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp import TCPConnector
-import socket
 
-# Force IPv4 via TCPConnector
-connector = TCPConnector(family=socket.AF_INET, ssl=True)
-session = AiohttpSession(connector=connector)
-bot = Bot(token=config.token, session=session)
+# Bot va Router
+# Bot initialization moved to main() to fix Event Loop error
+# from aiogram.client.session.aiohttp import AiohttpSession
+# from aiohttp import TCPConnector
+# import socket
+
+# Global connector/session/bot removed from here
+# They will be initialized in main()
+
+dp = Dispatcher()
+router = Router()
+dp.include_router(router)
 
 dp = Dispatcher()
 router = Router()
@@ -815,11 +818,23 @@ async def handle_cancel(callback: CallbackQuery):
 # ============== Main ==============
 
 async def main():
-    """Botni ishga tushirish"""
+    """Botni ishga tushirish (IPv4 forced inside async loop)"""
     logger.info("📥 Media Downloader Bot v3.0 ishga tushmoqda...")
     
     # DB ni ishga tushirish
     await init_db()
+    
+    # Force IPv4 via TCPConnector inside the loop!
+    from aiogram.client.session.aiohttp import AiohttpSession
+    from aiohttp import TCPConnector
+    import socket
+    
+    connector = TCPConnector(family=socket.AF_INET, ssl=True)
+    session = AiohttpSession(connector=connector)
+    
+    # Initialize Bot here
+    global bot 
+    bot = Bot(token=config.token, session=session)
     
     try:
         await dp.start_polling(bot)

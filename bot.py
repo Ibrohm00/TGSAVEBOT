@@ -101,6 +101,33 @@ except Exception as e:
 # Global connector/session/bot removed from here
 # They will be initialized in main()
 
+# --- IPv4 Session (Singleton) ---
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiohttp import TCPConnector, ClientSession
+
+class IPv4Session(AiohttpSession):
+    _singleton_session: Optional[ClientSession] = None
+
+    async def create_session(self) -> ClientSession:
+        if self._singleton_session is None or self._singleton_session.closed:
+            logger.info("🔌 IPv4Session: Creating Singleton ClientSession (Global DNS patched)...")
+            connector = TCPConnector(
+                family=socket.AF_INET,
+                ssl=True,
+                limit=100,
+                ttl_dns_cache=300
+            )
+            self._singleton_session = ClientSession(connector=connector, json_serialize=self.json_dumps)
+        else:
+            logger.info("🔌 IPv4Session: Reusing Singleton ClientSession")
+
+        return self._singleton_session
+
+    async def close(self):
+        if self._singleton_session and not self._singleton_session.closed:
+            await self._singleton_session.close()
+        await super().close()
+
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)

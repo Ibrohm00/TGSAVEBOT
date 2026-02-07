@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from config import config, SUPPORTED_PLATFORMS
+from config import config, SUPPORTED_PLATFORMS, REAL_USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +229,7 @@ async def download_instagram(url: str) -> DownloadResult:
             'socket_timeout': config.download_timeout,
             'merge_output_format': 'mp4',
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -285,6 +286,7 @@ async def download_twitter(url: str) -> DownloadResult:
             'socket_timeout': config.download_timeout,
             'merge_output_format': 'mp4',
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -403,6 +405,7 @@ async def download_generic(url: str, platform: str) -> DownloadResult:
                 'ffmpeg': ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k']
             },
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -478,6 +481,7 @@ async def download_soundcloud(url: str) -> DownloadResult:
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -528,6 +532,7 @@ async def download_vk(url: str) -> DownloadResult:
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -592,6 +597,7 @@ async def download_likee(url: str) -> DownloadResult:
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -653,8 +659,9 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
         if no_watermark:
             try:
                 api_url = f"https://www.tikwm.com/api/?url={url}"
+                headers = {'User-Agent': REAL_USER_AGENT}
                 async with aiohttp.ClientSession(connector=get_connector()) as session:
-                    async with session.get(api_url, timeout=30) as resp:
+                    async with session.get(api_url, headers=headers, timeout=30) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             if data.get('code') == 0:
@@ -690,6 +697,7 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
             'no_warnings': True,
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -741,7 +749,7 @@ async def download_pinterest(url: str) -> DownloadResult:
         async with aiohttp.ClientSession(connector=get_connector()) as session:
             # Pinterest sahifasini olish
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': REAL_USER_AGENT
             }
             async with session.get(url, headers=headers, timeout=30) as resp:
                 if resp.status != 200:

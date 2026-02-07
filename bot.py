@@ -1,0 +1,822 @@
+"""
+📥 Media Downloader Bot v3.0 (Optimized)
+YouTube, Instagram, TikTok va boshqa platformalardan video/audio/rasm yuklab beruvchi bot
+"""
+
+import asyncio
+import logging
+import time
+from datetime import datetime
+from typing import Dict, Optional
+from collections import defaultdict
+
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.types import (
+    Message, CallbackQuery, 
+    InlineKeyboardButton, InlineKeyboardMarkup,
+    BufferedInputFile, FSInputFile
+)
+from aiogram.filters import Command
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
+class BroadcastState(StatesGroup):
+    waiting_for_message = State()
+    confirm_send = State()
+
+from config import config, MESSAGES, SUPPORTED_PLATFORMS
+from downloader import (
+    detect_platform, extract_url, download_media, DownloadResult
+)
+from database import (
+    init_db, add_user, get_settings as db_get_settings, update_settings, 
+    set_user_active, get_users_count, get_active_users_count, 
+    get_new_users_today, get_all_users, get_last_users
+)
+
+# Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Bot va Router
+bot = Bot(token=config.token)
+dp = Dispatcher()
+router = Router()
+dp.include_router(router)
+
+# User settings cache (Transient state + cached settings)
+user_settings: Dict[int, dict] = {}
+
+# Rate limiting
+user_rate_limit: Dict[int, float] = defaultdict(float)
+RATE_LIMIT_SECONDS = 3  # Har 3 sekundda 1 ta so'rov
+
+
+# ============== Utility Functions ==============
+
+async def get_user_settings(user_id: int) -> dict:
+    """Foydalanuvchi sozlamalarini olish (DB + Cache)"""
+    if user_id not in user_settings:
+        # DB dan olish
+        db_settings = await db_get_settings(user_id)
+        
+        user_settings[user_id] = {
+            'video_quality': db_settings.get('video_quality', config.default_video_quality),
+            'audio_quality': db_settings.get('audio_quality', config.default_audio_quality),
+            'pending_url': None,
+            'pending_platform': None,
+        }
+    return user_settings[user_id]
+
+
+def check_rate_limit(user_id: int) -> bool:
+    """Rate limitni tekshirish"""
+    now = time.time()
+    last_request = user_rate_limit[user_id]
+    
+    if now - last_request < RATE_LIMIT_SECONDS:
+        return False
+    
+    user_rate_limit[user_id] = now
+    return True
+
+
+def escape_md(text: str) -> str:
+    """MarkdownV2 uchun escape (optimized)"""
+    if not text:
+        return ""
+    
+    # Regex bilan tezroq
+    import re
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!\\])', r'\\\1', str(text))
+
+
+def main_keyboard():
+    """Asosiy klaviatura"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"),
+            InlineKeyboardButton(text="❓ Yordam", callback_data="help")
+        ]
+    ])
+
+
+def download_keyboard(url: str, platform: str):
+    """Yuklash variantlari (to'liq)"""
+    buttons = []
+    
+    platform_info = SUPPORTED_PLATFORMS.get(platform, {})
+    supports = platform_info.get('supports', ['video'])
+    
+    # Video
+    if 'video' in supports:
+        buttons.append([InlineKeyboardButton(text="🎬 Video", callback_data="dl:video")])
+    
+    # TikTok uchun no-watermark
+    if platform == 'tiktok':
+        buttons.append([InlineKeyboardButton(text="🎬 Video (logosiz)", callback_data="dl:nowm")])
+    
+    # Audio (YouTube, TikTok, SoundCloud, VK, Spotify)
+    if 'audio' in supports:
+        buttons.append([InlineKeyboardButton(text="🎵 Audio (MP3)", callback_data="dl:audio")])
+    
+    buttons.append([InlineKeyboardButton(text="❌ Bekor", callback_data="cancel")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def quality_keyboard():
+    """Sifat tanlash"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="360p", callback_data="q:360p"),
+            InlineKeyboardButton(text="480p", callback_data="q:480p"),
+        ],
+        [
+            InlineKeyboardButton(text="720p ✓", callback_data="q:720p"),
+            InlineKeyboardButton(text="1080p", callback_data="q:1080p"),
+        ],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back")]
+    ])
+
+
+def admin_keyboard():
+    """Admin panel klaviaturasi"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📊 Statistika", callback_data="admin:stats"),
+            InlineKeyboardButton(text="📢 Reklama", callback_data="admin:broadcast")
+        ],
+        [
+            InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin:users"),
+            InlineKeyboardButton(text="🔄 Yangilash", callback_data="admin:refresh")
+        ],
+        [InlineKeyboardButton(text="🔒 Kanal Sozlamalari", callback_data="admin:channels")],
+        [InlineKeyboardButton(text="❌ Yopish", callback_data="delete_msg")]
+    ])
+
+
+def admin_back_keyboard():
+    """Admin panelga qaytish"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Admin Panel", callback_data="admin:back")]
+    ])
+
+
+def broadcast_confirm_keyboard():
+    """Broadcast tasdiqlash"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Yuborish", callback_data="broadcast:send"),
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data="broadcast:cancel")
+        ]
+    ])
+
+
+# ============== Safe Message Operations ==============
+
+async def safe_edit(msg: Message, text: str, **kwargs) -> bool:
+    """Xabarni xavfsiz tahrirlash (retry bilan)"""
+    for attempt in range(3):
+        try:
+            await msg.edit_text(text, **kwargs)
+            return True
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                logger.debug(f"Edit error: {e}")
+            return False
+        except Exception as e:
+            logger.debug(f"Edit error attempt {attempt}: {e}")
+            if attempt < 2:
+                await asyncio.sleep(0.5)
+    return False
+
+
+async def safe_delete(msg: Message) -> bool:
+    """Xabarni xavfsiz o'chirish"""
+    try:
+        await msg.delete()
+        return True
+    except Exception:
+        return False
+
+
+# ============== Commands ==============
+
+@router.message(Command("start"))
+async def cmd_start(message: Message):
+    """Start buyrug'i"""
+    # Foydalanuvchini bazaga qo'shish
+    await add_user(
+        message.from_user.id, 
+        message.from_user.username, 
+        message.from_user.full_name
+    )
+    
+    try:
+        logo = FSInputFile("logo.png")
+        await message.answer_photo(
+            logo,
+            caption=MESSAGES['start'],
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    except:
+        # Rasm topilmasa oddiy xabar
+        await message.answer(
+            MESSAGES['start'],
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    """Yordam"""
+    await message.answer(
+        MESSAGES['help'],
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message):
+    """Sozlamalar"""
+    settings = await get_user_settings(message.from_user.id)
+    text = MESSAGES['settings'].format(
+        video_quality=settings['video_quality'],
+        audio_quality=settings['audio_quality']
+    )
+    await message.answer(
+        text,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=quality_keyboard()
+    )
+
+
+# ============== Admin Commands ==============
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message):
+    """Admin panel"""
+    if message.from_user.id not in config.admin_ids:
+        return
+    
+    total = await get_users_count()
+    active = await get_active_users_count()
+    new_today = await get_new_users_today()
+    
+    text = (
+        "👑 *Admin Panel*\n\n"
+        f"👤 Jami foydalanuvchilar: {total}\n"
+        f"✅ Aktiv foydalanuvchilar: {active}\n"
+        f"🆕 Bugungi yangi: {new_today}\n\n"
+        "Quyidagi bo'limlardan birini tanlang:"
+    )
+    
+    await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=admin_keyboard())
+
+
+@router.callback_query(F.data == "delete_msg")
+async def delete_msg(callback: CallbackQuery):
+    if callback.from_user.id not in config.admin_ids:
+        await callback.answer("❌ Siz admin emassiz!", show_alert=True)
+        return
+    await safe_delete(callback.message)
+
+
+@router.callback_query(F.data.startswith("admin:"))
+async def handle_admin_callback(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in config.admin_ids:
+        await callback.answer("❌ Siz admin emassiz!", show_alert=True)
+        return
+
+    action = callback.data.split(":")[1]
+    
+    if action == "stats" or action == "refresh":
+        total = await get_users_count()
+        active = await get_active_users_count()
+        new_today = await get_new_users_today()
+        
+        text = (
+            "👑 *Admin Panel*\n\n"
+            f"👤 Jami foydalanuvchilar: {total}\n"
+            f"✅ Aktiv foydalanuvchilar: {active}\n"
+            f"🆕 Bugungi yangi: {new_today}\n\n"
+            f"📅 Yangilandi: {datetime.now().strftime('%H:%M:%S')}"
+        )
+        await safe_edit(callback.message, text, parse_mode=ParseMode.MARKDOWN, reply_markup=admin_keyboard())
+    
+    elif action == "broadcast":
+        await safe_edit(
+            callback.message,
+            "📢 *Reklama yuborish*\n\n"
+            "Xabar matnini, rasm yoki videoni yuboring:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=admin_back_keyboard()
+        )
+        await state.set_state(BroadcastState.waiting_for_message)
+        # await callback.answer() # safe_edit da answer shart emas agar message o'zgarsa
+    
+    elif action == "users":
+        if callback.from_user.id not in config.admin_ids:
+             await callback.answer("❌ Siz admin emassiz!", show_alert=True)
+             return
+
+        users = await get_last_users(10)
+        text = "👥 *Oxirgi 10 ta foydalanuvchi:*\n\n"
+        
+        for u in users:
+            uid, uname, fname, date = u
+            user_link = f"@{uname}" if uname else f"[{escape_md(fname)}](tg://user?id={uid})"
+            joined = str(date).split('.')[0]
+            text += f"👤 {user_link} \\(`{uid}`\\)\n📅 {escape_md(joined)}\n\n"
+            
+        await safe_edit(callback.message, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=admin_back_keyboard())
+    
+    elif action == "channels":
+        await callback.answer("Majburiy obuna funksiyasi hali o'chirilgan", show_alert=True)
+    
+    elif action == "back":
+        await state.clear() # FSM holatini tozalash
+        total = await get_users_count()
+        active = await get_active_users_count()
+        new_today = await get_new_users_today()
+        
+        text = (
+            "👑 *Admin Panel*\n\n"
+            f"👤 Jami foydalanuvchilar: {total}\n"
+            f"✅ Aktiv foydalanuvchilar: {active}\n"
+            f"🆕 Bugungi yangi: {new_today}\n\n"
+            "Quyidagi bo'limlardan birini tanlang:"
+        )
+        await safe_edit(callback.message, text, parse_mode=ParseMode.MARKDOWN, reply_markup=admin_keyboard())
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message):
+    """Statistika (Admin)"""
+    if message.from_user.id not in config.admin_ids:
+        return
+    
+    total = await get_users_count()
+    active = await get_active_users_count()
+    new_today = await get_new_users_today()
+    
+    text = (
+        "📊 *Bot Statistikasi*\n\n"
+        f"👤 Jami foydalanuvchilar: {total}\n"
+        f"✅ Aktiv foydalanuvchilar: {active}\n"
+        f"🆕 Bugungi yangi: {new_today}\n"
+        f"📅 Sana: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
+    
+    await message.answer(text, parse_mode=ParseMode.MARKDOWN)
+
+
+@router.message(Command("broadcast"))
+async def cmd_broadcast(message: Message):
+    """Xabar tarqatish (Admin)"""
+    if message.from_user.id not in config.admin_ids:
+        return
+    
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("⚠️ Xabar matnini kiriting!\nNamuna: `/broadcast Assalomu alaykum`", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    text = parts[1]
+    users = await get_all_users()
+    
+    msg = await message.answer(f"🚀 Xabar yuborish boshlandi ({len(users)} ta)...")
+    
+    sent = 0
+    blocked = 0
+    
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text, parse_mode=ParseMode.MARKDOWN_V2)
+            sent += 1
+        except Exception as e:
+            blocked += 1
+            await set_user_active(user_id, False)
+            await asyncio.sleep(0.05)  # Flood limit oldini olish
+    
+    await msg.edit_text(
+        f"✅ *Xabar yuborildi*\n\n"
+        f"📤 Yuborildi: {sent}\n"
+        f"🚫 Bloklangan: {blocked}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+@router.message(BroadcastState.waiting_for_message)
+async def process_broadcast_message(message: Message, state: FSMContext):
+    """Broadcast xabarini qabul qilish"""
+    # Xabarni vaqtinchalik saqlash (bu yerda oddiygina qayta yuborish logikasi bo'ladi)
+    # Ammo hozircha message_id va chat_id ni saqlaymiz
+    await state.update_data(message_id=message.message_id, chat_id=message.chat.id)
+    
+    await message.reply(
+        "✅ Xabar qabul qilindi. Yuborishni tasdiqlaysizmi?",
+        reply_markup=broadcast_confirm_keyboard()
+    )
+    await state.set_state(BroadcastState.confirm_send)
+
+
+@router.callback_query(BroadcastState.confirm_send, F.data == "broadcast:send")
+async def process_broadcast_send(callback: CallbackQuery, state: FSMContext):
+    """Broadcastni yuborish"""
+    await callback.message.edit_text("🚀 Xabar yuborilmoqda...")
+    
+    data = await state.get_data()
+    message_id = data['message_id']
+    chat_id = data['chat_id']
+    
+    users = await get_all_users()
+    sent = 0
+    blocked = 0
+    
+    for user_id in users:
+        try:
+            # Copy message - rasm/video/matn hammasini qo'llab-quvvatlaydi
+            await bot.copy_message(chat_id=user_id, from_chat_id=chat_id, message_id=message_id)
+            sent += 1
+        except Exception:
+            blocked += 1
+            await set_user_active(user_id, False)
+            await asyncio.sleep(0.05)
+    
+    await callback.message.edit_text(
+        f"✅ *Xabar yuborildi*\n\n"
+        f"📤 Yuborildi: {sent}\n"
+        f"🚫 Bloklangan: {blocked}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await state.clear()
+
+
+@router.callback_query(BroadcastState.confirm_send, F.data == "broadcast:cancel")
+async def process_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    """Broadcastni bekor qilish"""
+    if callback.from_user.id not in config.admin_ids:
+         await callback.answer("❌ Siz admin emassiz!", show_alert=True)
+         return
+
+    await state.clear()
+    await callback.message.edit_text("❌ Xabar yuborish bekor qilindi.")
+    
+    # Admin panelga qaytish
+    total = await get_users_count()
+    active = await get_active_users_count()
+    new_today = await get_new_users_today()
+    
+    text = (
+        "👑 *Admin Panel*\n\n"
+        f"👤 Jami foydalanuvchilar: {total}\n"
+        f"✅ Aktiv foydalanuvchilar: {active}\n"
+        f"🆕 Bugungi yangi: {new_today}\n\n"
+        "Quyidagi bo'limlardan birini tanlang:"
+    )
+    await safe_edit(callback.message, text, parse_mode=ParseMode.MARKDOWN, reply_markup=admin_keyboard())
+
+
+# ============== Link Handler ==============
+
+@router.message(F.text)
+async def handle_message(message: Message):
+    """Xabarlarni qayta ishlash (optimized)"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    # Bazaga qo'shish/yangilash
+    await add_user(
+        user_id, 
+        message.from_user.username, 
+        message.from_user.full_name
+    )
+    
+    # Rate limit tekshirish
+    if not check_rate_limit(user_id):
+        await message.answer(
+            "⏳ Iltimos, biroz kuting\\.\\.\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # URL ni topish
+    url = extract_url(text)
+    
+    if not url:
+        await message.answer(
+            MESSAGES['error_no_link'],
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Platformani aniqlash
+    platform = detect_platform(url)
+    
+    if not platform:
+        await message.answer(
+            MESSAGES['error_unsupported'],
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Platform info
+    platform_info = SUPPORTED_PLATFORMS[platform]
+    emoji = platform_info['emoji']
+    name = platform_info['name']
+    supports = platform_info.get('supports', ['video'])
+    
+    # URL va platformani saqlash (sync -> async)
+    settings = await get_user_settings(user_id)
+    settings['pending_url'] = url
+    settings['pending_platform'] = platform
+    
+    # Variant kerak bo'lgan platformalar
+    needs_choice = (
+        platform in ['youtube', 'tiktok', 'vk', 'soundcloud', 'spotify'] or
+        len(supports) > 1
+    )
+    
+    if needs_choice:
+        await message.answer(
+            f"{emoji} *{escape_md(name)}* aniqlandi\\!\n\nNima yuklamoqchisiz?",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=download_keyboard(url, platform)
+        )
+        return
+    
+    # To'g'ridan-to'g'ri yuklash
+    media_type = supports[0] if supports else 'video'
+    await process_download(message, url, platform, media_type)
+
+
+async def process_download(
+    message: Message, 
+    url: str, 
+    platform: str, 
+    media_type: str, 
+    no_watermark: bool = False
+):
+    """
+    Yuklash jarayoni (maksimal optimizatsiya)
+    - Progress bar
+    - Retry logic
+    - Better error handling
+    """
+    platform_info = SUPPORTED_PLATFORMS.get(platform, {})
+    emoji = platform_info.get('emoji', '📥')
+    name = platform_info.get('name', platform)
+    
+    # Loading xabar
+    loading_msg = await message.answer(
+        f"{emoji} *{escape_md(name)}*\n\n⏳ Tayyorlanmoqda\\.\\.\\.",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    
+    # Progress callback
+    progress_state = {'last_update': 0, 'step': 0}
+    
+    async def update_progress(status: str):
+        now = time.time()
+        if now - progress_state['last_update'] > 2:
+            progress_state['step'] += 1
+            dots = "." * (progress_state['step'] % 4)
+            try:
+                await safe_edit(
+                    loading_msg,
+                    f"{emoji} *{escape_md(name)}*\n\n{escape_md(status)}{dots}",
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                progress_state['last_update'] = now
+            except:
+                pass
+    
+    result = None
+    
+    try:
+        # Yuklash boshlandi
+        await safe_edit(
+            loading_msg,
+            f"{emoji} *{escape_md(name)}*\n\n📥 Yuklanmoqda\\.\\.\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        
+        # Yuklash (retry bilan)
+        for attempt in range(2):
+            result = await download_media(url, media_type, no_watermark, update_progress)
+            
+            if result.success:
+                break
+            elif attempt < 1:
+                await asyncio.sleep(1)
+                logger.info(f"Retry download: {platform}")
+        
+        if not result.success:
+            error_text = result.error or "Noma'lum xato"
+            await safe_edit(
+                loading_msg,
+                f"❌ *Xatolik*\n\n{escape_md(error_text)}",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            return
+        
+        # Uploading
+        await safe_edit(
+            loading_msg,
+            f"{emoji} *{escape_md(name)}*\n\n📤 Telegramga yuklanmoqda\\.\\.\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        
+        # Caption yaratish
+        title = (result.title[:45] + "...") if result.title and len(result.title) > 45 else (result.title or name)
+        caption = f"{emoji} *{escape_md(title)}*"
+        
+        if result.duration:
+            mins = result.duration // 60
+            secs = result.duration % 60
+            caption += f"\n⏱ {mins}\\:{secs:02d}"
+        
+        caption += f"\n📦 {escape_md(f'{result.size_mb:.1f}')}MB"
+        
+        # Media yuborish
+        if result.media_type == 'video':
+            video_file = FSInputFile(result.file_path)
+            
+            if result.thumbnail:
+                thumb = BufferedInputFile(result.thumbnail, filename="thumb.jpg")
+                await message.answer_video(
+                    video_file,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    thumbnail=thumb
+                )
+            else:
+                await message.answer_video(
+                    video_file,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+        
+        elif result.media_type == 'audio':
+            audio_file = FSInputFile(result.file_path)
+            await message.answer_audio(
+                audio_file,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                title=title[:60]
+            )
+        
+        elif result.media_type == 'image':
+            photo_file = FSInputFile(result.file_path)
+            await message.answer_photo(
+                photo_file,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        
+        # Loading xabarini o'chirish
+        await safe_delete(loading_msg)
+        
+    except Exception as e:
+        logger.error(f"Download error: {e}", exc_info=True)
+        await safe_edit(
+            loading_msg,
+            f"❌ *Xatolik*\n\n{escape_md(str(e)[:80])}",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+    
+    finally:
+        # Cleanup (muhim!)
+        if result:
+            result.cleanup()
+
+
+# ============== Callbacks ==============
+
+@router.callback_query(F.data.startswith("dl:"))
+async def handle_download(callback: CallbackQuery):
+    """Yuklash callback (optimized)"""
+    await callback.answer()
+    
+    action = callback.data.split(":")[1] if ":" in callback.data else "video"
+    
+    # Saqlangan URL
+    settings = await get_user_settings(callback.from_user.id)
+    url = settings.get('pending_url')
+    platform = settings.get('pending_platform', 'youtube')
+    
+    if not url:
+        await safe_edit(
+            callback.message,
+            "⚠️ Link eskirgan\\. Qaytadan yuboring\\.",
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+    
+    # Xabarni o'chirish
+    await safe_delete(callback.message)
+    
+    # Settings tozalash
+    settings['pending_url'] = None
+    settings['pending_platform'] = None
+    
+    # Media type va no_watermark
+    no_watermark = (action == 'nowm')
+    media_type = 'video' if action in ['video', 'nowm'] else 'audio'
+    
+    # Yuklash
+    await process_download(callback.message, url, platform, media_type, no_watermark)
+
+
+@router.callback_query(F.data.startswith("q:"))
+async def handle_quality(callback: CallbackQuery):
+    """Sifat tanlash"""
+    quality = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+    
+    # DB va Cache yangilash
+    await update_settings(user_id, 'video_quality', quality)
+    settings = await get_user_settings(user_id)
+    settings['video_quality'] = quality
+    
+    await callback.answer(f"✅ Sifat: {quality}")
+    
+    text = MESSAGES['settings'].format(
+        video_quality=settings['video_quality'],
+        audio_quality=settings['audio_quality']
+    )
+    await safe_edit(
+        callback.message,
+        text,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=quality_keyboard()
+    )
+
+
+@router.callback_query(F.data == "settings")
+async def handle_settings(callback: CallbackQuery):
+    """Sozlamalar callback"""
+    await callback.answer()
+    settings = await get_user_settings(callback.from_user.id)
+    text = MESSAGES['settings'].format(
+        video_quality=settings['video_quality'],
+        audio_quality=settings['audio_quality']
+    )
+    await safe_edit(
+        callback.message,
+        text,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=quality_keyboard()
+    )
+
+
+@router.callback_query(F.data == "help")
+async def handle_help(callback: CallbackQuery):
+    """Yordam callback"""
+    await callback.answer()
+    await safe_edit(
+        callback.message,
+        MESSAGES['help'],
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+@router.callback_query(F.data.in_({"cancel", "back"}))
+async def handle_cancel(callback: CallbackQuery):
+    """Bekor qilish"""
+    await callback.answer("❌ Bekor qilindi")
+    
+    # Pending URL tozalash
+    settings = await get_user_settings(callback.from_user.id)
+    settings['pending_url'] = None
+    settings['pending_platform'] = None
+    
+    await safe_delete(callback.message)
+
+
+# ============== Main ==============
+
+async def main():
+    """Botni ishga tushirish"""
+    logger.info("📥 Media Downloader Bot v3.0 ishga tushmoqda...")
+    
+    # DB ni ishga tushirish
+    await init_db()
+    
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

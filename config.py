@@ -1,0 +1,214 @@
+"""
+Media Downloader Bot - Configuration
+YouTube, Instagram, TikTok va boshqa platformalardan yuklab beruvchi bot
+"""
+
+import os
+import logging
+from dataclasses import dataclass
+from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BotConfig:
+    """Bot konfiguratsiyasi"""
+    # API
+    token: str = os.getenv("BOT_TOKEN", "")
+    admin_ids: List[int] = None
+    db_path: str = "bot.db"
+    
+    # Limitlar
+    max_video_size_mb: int = 50      # Telegram limit
+    max_audio_size_mb: int = 50
+    max_duration_seconds: int = 1800  # 30 daqiqa (ko'proq)
+    
+    # Timeouts
+    download_timeout: int = 180       # 3 daqiqa (yuqori sifat uchun ko'proq vaqt)
+    request_timeout: int = 60
+    
+    # Sifat - MAKSIMAL
+    default_video_quality: str = "1080p"  # Eng yuqori
+    default_audio_quality: str = "320k"   # Eng yuqori
+    
+    def __post_init__(self):
+        if self.admin_ids is None:
+            admin_str = os.getenv("ADMIN_IDS", "")
+            self.admin_ids = [int(x) for x in admin_str.split(",") if x.strip().isdigit()]
+        
+        if not self.token:
+            raise ValueError("❌ BOT_TOKEN topilmadi! .env faylini tekshiring.")
+        
+        logger.info("✅ Config yuklandi")
+
+
+# Qo'llab-quvvatlanadigan platformalar
+SUPPORTED_PLATFORMS = {
+    'youtube': {
+        'name': 'YouTube',
+        'emoji': '🎬',
+        'patterns': ['youtube.com', 'youtu.be', 'youtube.com/shorts'],
+        'supports': ['video', 'audio', 'thumbnail']
+    },
+    'instagram': {
+        'name': 'Instagram',
+        'emoji': '📸',
+        'patterns': ['instagram.com/p/', 'instagram.com/reel/', 'instagram.com/stories/'],
+        'supports': ['video', 'image']
+    },
+    'tiktok': {
+        'name': 'TikTok',
+        'emoji': '🎵',
+        'patterns': ['tiktok.com', 'vm.tiktok.com'],
+        'supports': ['video', 'audio']
+    },
+    'twitter': {
+        'name': 'Twitter/X',
+        'emoji': '🐦',
+        'patterns': ['twitter.com', 'x.com'],
+        'supports': ['video', 'image']
+    },
+    'facebook': {
+        'name': 'Facebook',
+        'emoji': '📘',
+        'patterns': ['facebook.com', 'fb.watch'],
+        'supports': ['video']
+    },
+    'pinterest': {
+        'name': 'Pinterest',
+        'emoji': '📌',
+        'patterns': ['pinterest.com', 'pin.it'],
+        'supports': ['image']
+    },
+    'spotify': {
+        'name': 'Spotify',
+        'emoji': '🎧',
+        'patterns': ['open.spotify.com/track', 'spotify.com/track'],
+        'supports': ['audio']
+    },
+    'soundcloud': {
+        'name': 'SoundCloud',
+        'emoji': '🔊',
+        'patterns': ['soundcloud.com'],
+        'supports': ['audio']
+    },
+    'vk': {
+        'name': 'VK',
+        'emoji': '📱',
+        'patterns': ['vk.com/video', 'vk.com/clip', 'vk.com/music'],
+        'supports': ['video', 'audio']
+    },
+    'likee': {
+        'name': 'Likee',
+        'emoji': '🎭',
+        'patterns': ['likee.video', 'l.likee.video', 'likee.com'],
+        'supports': ['video']
+    },
+    'dailymotion': {
+        'name': 'Dailymotion',
+        'emoji': '📺',
+        'patterns': ['dailymotion.com', 'dai.ly'],
+        'supports': ['video']
+    },
+    'vimeo': {
+        'name': 'Vimeo',
+        'emoji': '🎥',
+        'patterns': ['vimeo.com'],
+        'supports': ['video']
+    },
+    'reddit': {
+        'name': 'Reddit',
+        'emoji': '🔴',
+        'patterns': ['reddit.com', 'redd.it', 'v.redd.it'],
+        'supports': ['video', 'image']
+    },
+    'tumblr': {
+        'name': 'Tumblr',
+        'emoji': '📝',
+        'patterns': ['tumblr.com'],
+        'supports': ['video', 'image']
+    },
+    'twitch': {
+        'name': 'Twitch',
+        'emoji': '💜',
+        'patterns': ['twitch.tv/clip', 'clips.twitch.tv'],
+        'supports': ['video']
+    },
+    'okru': {
+        'name': 'OK.ru',
+        'emoji': '🟠',
+        'patterns': ['ok.ru', 'odnoklassniki.ru'],
+        'supports': ['video']
+    },
+    'rutube': {
+        'name': 'Rutube',
+        'emoji': '🔵',
+        'patterns': ['rutube.ru'],
+        'supports': ['video']
+    }
+}
+
+
+# Xabarlar
+MESSAGES = {
+    'start': """
+🎬 *Media Downloader Bot*
+
+YouTube, Instagram, TikTok va boshqa platformalardan video, rasm, musiqa yuklab beraman\\.
+
+*Qo'llab\\-quvvatlanadigan platformalar:*
+🎬 YouTube \\(video \\+ MP3\\)
+📸 Instagram \\(reels, post\\)
+🎵 TikTok \\(video \\+ audio\\)
+🐦 Twitter/X
+📘 Facebook
+📌 Pinterest
+
+📥 *Foydalanish:* Shunchaki link yuboring\\!
+""",
+    
+    'help': """
+ℹ️ *Yordam*
+
+*Buyruqlar:*
+/start \\- Boshlash
+/help \\- Yordam
+/settings \\- Sozlamalar
+
+*Qanday foydalanish:*
+1\\. Platformadan link ko'chiring
+2\\. Menga yuboring
+3\\. Men yuklab beraman\\!
+
+*Limitlar:*
+📦 Max hajm: 50MB
+⏱ Max davomiylik: 10 daqiqa
+""",
+    
+    'settings': """
+⚙️ *Sozlamalar*
+
+🎬 Video sifati: {video_quality}
+🎵 Audio sifati: {audio_quality}
+
+Tanlang:
+""",
+    
+    'downloading': "📥 Yuklanmoqda\\.\\.\\.",
+    'processing': "⚙️ Qayta ishlanmoqda\\.\\.\\.",
+    'uploading': "📤 Telegram'ga yuklanmoqda\\.\\.\\.",
+    
+    'error_no_link': "❌ Link topilmadi\\. Iltimos, to'g'ri link yuboring\\.",
+    'error_unsupported': "❌ Bu platforma qo'llab\\-quvvatlanmaydi\\.",
+    'error_too_long': "❌ Video juda uzun \\(max 10 daqiqa\\)\\.",
+    'error_too_large': "❌ Fayl juda katta \\(max 50MB\\)\\.",
+    'error_download': "❌ Yuklab bo'lmadi: {error}",
+    'error_private': "❌ Bu kontent maxfiy yoki mavjud emas\\.",
+}
+
+
+# Config instance
+config = BotConfig()

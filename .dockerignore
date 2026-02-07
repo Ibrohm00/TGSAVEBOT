@@ -1,0 +1,11 @@
+
+.env
+__pycache__
+*.pyc
+.git
+.gitignore
+README.md
+task.md
+implementation_plan.md
+walkthrough.md
+future_plan.md

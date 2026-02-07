@@ -131,8 +131,16 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
                 },
             }
         
-        # Info olish
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+        # Info olish (with client spoofing)
+        info_opts = {
+            'quiet': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios'],
+                }
+            }
+        }
+        with yt_dlp.YoutubeDL(info_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             title = info.get('title', 'Video')
             duration = info.get('duration', 0)

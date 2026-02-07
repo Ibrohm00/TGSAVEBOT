@@ -6,7 +6,13 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     ca-certificates \
     dnsutils \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno for yt-dlp JavaScript runtime
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="$DENO_INSTALL/bin:$PATH"
 
 # Set working directory
 WORKDIR /app

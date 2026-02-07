@@ -1,9 +1,11 @@
-# Python 3.11 slim image
-FROM python:3.11-slim
+# Python 3.11 full image (to avoid DNS/SSL issues in slim)
+FROM python:3.11
 
-# Install system dependencies (ffmpeg required for yt-dlp)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    ca-certificates \
+    dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

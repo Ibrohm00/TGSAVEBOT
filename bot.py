@@ -44,7 +44,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot va Router
-bot = Bot(token=config.token)
+# Bot va Router (IPv4 forced for HF Spaces)
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiohttp import TCPConnector
+import socket
+
+# Force IPv4 via TCPConnector
+connector = TCPConnector(family=socket.AF_INET, ssl=True)
+session = AiohttpSession(connector=connector)
+bot = Bot(token=config.token, session=session)
+
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)

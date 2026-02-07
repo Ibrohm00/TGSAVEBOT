@@ -1070,6 +1070,43 @@ async def handle_delete_channel(callback: CallbackQuery):
     else:
         await callback.answer("❌ Xatolik", show_alert=True)
 
+# --- HEALTH CHECK SERVER ---
+from aiohttp import web
+
+async def handle_health_check(request):
+    return web.Response(text="I am alive!", status=200)
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 7860)
+    await site.start()
+    logger.info("✅ Health check server started on port 7860")
+
+async def main():
+    await init_db()
+    
+    # Session creation (Singleton)
+    session = IPv4Session()
+    client_session = await session.create_session()
+    
+    # Bot init
+    bot = Bot(token=config.token, session=client_session)
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Start Web Server for UptimeRobot
+    await start_web_server()
+    
+    # Start Polling
+    logger.info("🚀 Bot ishga tushdi!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("🛑 Bot to'xtatildi")
+    except Exception as e:
+        logger.error(f"❌ Kutilmagan xatolik: {e}")

@@ -43,6 +43,54 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- DNS MONKEY PATCH START ---
+# Hugging Face Spaces da DNS muammosini hal qilish uchun
+try:
+    import dns.resolver
+    import socket
+    
+    logger.info("🛠️ DNS Resolver Monkey Patching...")
+    
+    original_getaddrinfo = socket.getaddrinfo
+    resolver = dns.resolver.Resolver()
+    resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+    
+    def custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        # Faqat domen nomlarini resolve qilish (IP larni emas)
+        if host is None:
+             return original_getaddrinfo(host, port, family, type, proto, flags)
+
+        try:
+            # Agar host allaqachon IP bo'lsa, original funksiyani ishlatish
+            socket.inet_aton(host)
+            return original_getaddrinfo(host, port, family, type, proto, flags)
+        except OSError:
+            pass # IP emas (yoki IPv6)
+            
+        try:
+            # IPv4 ni afzal ko'rish (A record)
+            # dnspython avtomatik ravishda CNAME larni ham hal qiladi
+            answers = resolver.resolve(host, 'A')
+            ip = answers[0].to_text()
+            # logger.debug(f"🔍 Resolved {host} -> {ip} (Google DNS)")
+            
+            # Asl manzilni IP bilan almashtirib chaqirish
+            # Hostnameni IP ga o'zgartiramiz, qolgan parametrlar o'zgarishsiz qoladi
+            return original_getaddrinfo(ip, port, family, type, proto, flags)
+        except Exception as e:
+            # Xatolik bo'lsa (yoki domen topilmasa) original funksiyaga qaytish
+            # System resolver balki uddalar (yoki /etc/hosts da bordir)
+            return original_getaddrinfo(host, port, family, type, proto, flags)
+            
+    socket.getaddrinfo = custom_getaddrinfo
+    logger.info("✅ socket.getaddrinfo patched with Google DNS!")
+    
+except ImportError:
+    logger.warning("⚠️ dnspython not found! DNS patching skipped. Please install dnspython.")
+except Exception as e:
+    logger.error(f"❌ DNS Patching error: {e}")
+# --- DNS MONKEY PATCH END ---
+
 
 # Bot va Router
 # Bot initialization moved to main() to fix Event Loop error

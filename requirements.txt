@@ -6,3 +6,4 @@ aiofiles>=23.0.0
 instaloader>=4.10.0
 motor>=3.3.0
 aiodns>=3.0.0
+dnspython>=2.4.0

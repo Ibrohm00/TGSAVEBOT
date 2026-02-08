@@ -259,7 +259,10 @@ def admin_keyboard():
             InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin:users"),
             InlineKeyboardButton(text="🔄 Yangilash", callback_data="admin:refresh")
         ],
-        [InlineKeyboardButton(text="🔒 Kanal Sozlamalari", callback_data="admin:channels")],
+        [
+            InlineKeyboardButton(text="📝 Reklama Matni", callback_data="admin:promo_text"),
+            InlineKeyboardButton(text="🔒 Kanal", callback_data="admin:channels")
+        ],
         [InlineKeyboardButton(text="❌ Yopish", callback_data="delete_msg")]
     ])
 
@@ -485,6 +488,47 @@ async def handle_admin_callback(callback: CallbackQuery, state: FSMContext):
     
     elif action == "channels":
         await callback.answer("Majburiy obuna funksiyasi hali o'chirilgan", show_alert=True)
+    
+    elif action == "promo_text":
+        promo = (
+            "🚀 *TG SAVE BOT* \\- Eng tez va qulay media yuklovchi\!
+
+"
+            "✨ *Qulayliklar:*
+"
+            "├ 📥 16\+ platformadan yuklash
+"
+            "├ 🎬 Video, 🎵 Audio, 🖼 Rasm
+"
+            "├ ⚡️ Tez va sifatli
+"
+            "├ 🆓 Butunlay bepul
+"
+            "└ 🌍 3 tilda ishlaydi
+
+"
+            "📲 *Qo'llab\-quvvatlanadi:*
+"
+            "Instagram \| TikTok \| Twitter \| Pinterest
+"
+            "SoundCloud \| Spotify \| VK \| Likee
+"
+            "Dailymotion \| Vimeo \| Reddit \| Twitch
+
+"
+            "👇 *Hoziroq sinab ko'ring:*
+"
+            "🤖 @tguzsavebot
+
+"
+            "\#mediadownloader \#tgsavebot \#yuklovchi"
+        )
+        await safe_edit(
+            callback.message,
+            f"📝 *Reklama Matni \\(nusxa olish uchun\\):*\n\n{promo}",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=admin_back_keyboard()
+        )
     
     elif action == "back":
         await state.clear() # FSM holatini tozalash

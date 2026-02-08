@@ -340,54 +340,77 @@ async def download_twitter(url: str) -> DownloadResult:
 async def download_pinterest(url: str) -> DownloadResult:
     """Pinterest'dan rasm/video yuklash"""
     try:
-        import yt_dlp
-        
         temp_dir = tempfile.mkdtemp()
-        output_path = os.path.join(temp_dir, "media")
         
-        ydl_opts = {
-            'format': 'best',
-            'outtmpl': output_path + '.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
-            'socket_timeout': config.download_timeout,
-            'force_ipv4': True,
-            'user_agent': REAL_USER_AGENT,
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title', 'Pinterest')[:50]
-        
-        # Fayl topish
-        actual_path = None
-        media_type = 'image'
-        for f in os.listdir(temp_dir):
-            full_path = os.path.join(temp_dir, f)
-            if f.endswith(('.mp4', '.webm')):
-                actual_path = full_path
-                media_type = 'video'
-                break
-            elif f.endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif')):
-                actual_path = full_path
-                media_type = 'image'
-                break
-        
-        if not actual_path:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return DownloadResult(success=False, platform='pinterest', error="Media topilmadi")
-        
-        file_size = os.path.getsize(actual_path) / (1024 * 1024)
-        
-        return DownloadResult(
-            success=True,
-            platform='pinterest',
-            media_type=media_type,
-            file_path=actual_path,
-            temp_dir=temp_dir,
-            title=title,
-            size_mb=file_size
-        )
+        # Pinterest sahifasini olish va rasm URL ni topish
+        async with aiohttp.ClientSession(connector=get_connector()) as session:
+            headers = {'User-Agent': REAL_USER_AGENT}
+            
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    return DownloadResult(success=False, platform='pinterest', error="Sahifa ochilmadi")
+                
+                html = await resp.text()
+                
+                # Rasm URL ni topish (turli patternlar)
+                import re
+                patterns = [
+                    r'"originals":\s*{\s*"url":\s*"([^"]+)"',
+                    r'"url":\s*"(https://i\.pinimg\.com/originals/[^"]+)"',
+                    r'<meta property="og:image" content="([^"]+)"',
+                    r'"image_signature":"[^"]+","images":\{"orig":\{"url":"([^"]+)"',
+                    r'https://i\.pinimg\.com/\d+x\d+/[a-zA-Z0-9/]+\.[a-z]+',
+                ]
+                
+                img_url = None
+                for pattern in patterns:
+                    match = re.search(pattern, html)
+                    if match:
+                        if match.groups():
+                            img_url = match.group(1).replace('\\u002F', '/')
+                        else:
+                            img_url = match.group(0)
+                        # originals versiyasini olishga harakat qilish
+                        if 'pinimg.com' in img_url and '/originals/' not in img_url:
+                            img_url = re.sub(r'/\d+x\d+/', '/originals/', img_url)
+                        break
+                
+                if not img_url:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    return DownloadResult(success=False, platform='pinterest', error="Rasm topilmadi")
+                
+                # Rasm yuklash
+                async with session.get(img_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as img_resp:
+                    if img_resp.status != 200:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        return DownloadResult(success=False, platform='pinterest', error="Rasm yuklanmadi")
+                    
+                    # Fayl kengaytmasini aniqlash
+                    ext = '.jpg'
+                    content_type = img_resp.headers.get('content-type', '')
+                    if 'png' in content_type:
+                        ext = '.png'
+                    elif 'webp' in content_type:
+                        ext = '.webp'
+                    elif 'gif' in content_type:
+                        ext = '.gif'
+                    
+                    output_path = os.path.join(temp_dir, f"pinterest{ext}")
+                    with open(output_path, 'wb') as f:
+                        f.write(await img_resp.read())
+                    
+                    file_size = os.path.getsize(output_path) / (1024 * 1024)
+                    
+                    return DownloadResult(
+                        success=True,
+                        platform='pinterest',
+                        media_type='image',
+                        file_path=output_path,
+                        temp_dir=temp_dir,
+                        title='Pinterest',
+                        size_mb=file_size
+                    )
         
     except Exception as e:
         logger.error(f"Pinterest download error: {e}")

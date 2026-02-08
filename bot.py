@@ -491,37 +491,20 @@ async def handle_admin_callback(callback: CallbackQuery, state: FSMContext):
     
     elif action == "promo_text":
         promo = (
-            "🚀 *TG SAVE BOT* \\- Eng tez va qulay media yuklovchi\!
-
-"
-            "✨ *Qulayliklar:*
-"
-            "├ 📥 16\+ platformadan yuklash
-"
-            "├ 🎬 Video, 🎵 Audio, 🖼 Rasm
-"
-            "├ ⚡️ Tez va sifatli
-"
-            "├ 🆓 Butunlay bepul
-"
-            "└ 🌍 3 tilda ishlaydi
-
-"
-            "📲 *Qo'llab\-quvvatlanadi:*
-"
-            "Instagram \| TikTok \| Twitter \| Pinterest
-"
-            "SoundCloud \| Spotify \| VK \| Likee
-"
-            "Dailymotion \| Vimeo \| Reddit \| Twitch
-
-"
-            "👇 *Hoziroq sinab ko'ring:*
-"
-            "🤖 @tguzsavebot
-
-"
-            "\#mediadownloader \#tgsavebot \#yuklovchi"
+            "🚀 *TG SAVE BOT* \\- Eng tez va qulay media yuklovchi\\!\n\n"
+            "✨ *Qulayliklar:*\n"
+            "├ 📥 16\\+ platformadan yuklash\n"
+            "├ 🎬 Video, 🎵 Audio, 🖼 Rasm\n"
+            "├ ⚡️ Tez va sifatli\n"
+            "├ 🆓 Butunlay bepul\n"
+            "└ 🌍 3 tilda ishlaydi\n\n"
+            "📲 *Qo'llab\\-quvvatlanadi:*\n"
+            "Instagram \\| TikTok \\| Twitter \\| Pinterest\n"
+            "SoundCloud \\| Spotify \\| VK \\| Likee\n"
+            "Dailymotion \\| Vimeo \\| Reddit \\| Twitch\n\n"
+            "👇 *Hoziroq sinab ko'ring:*\n"
+            "🤖 @tguzsavebot\n\n"
+            "\\#mediadownloader \\#tgsavebot \\#yuklovchi"
         )
         await safe_edit(
             callback.message,

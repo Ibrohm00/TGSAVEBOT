@@ -1,8 +1,8 @@
 {
-    "start_welcome": "👋 Hello, {name}\\!\n\n🤖 I can download video/audio from YouTube, Instagram, TikTok and other networks\\.\n\n👇 Send a link:",
+    "start_welcome": "👋 Hello, {name}\\!\n\n🤖 I can download video/audio from Instagram, TikTok and other networks\\.\n\n⚠️ *YouTube is temporarily unavailable*\n\n👇 Send a link:",
     "language_selected": "✅ Language changed: English",
     "select_language": "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:\n🇺🇸 Please select a language:",
-    "help": "ℹ️ *Help*\n\nBot supports the following networks:\n\n🎥 *Video*: YouTube, Instagram, TikTok, Likee, Pinterest\n🎵 *Audio*: SoundCloud, Spotify, VK\n\nSend a link and I will download it for you\\!",
+    "help": "ℹ️ *Help*\n\nBot supports the following networks:\n\n🎥 *Video*: Instagram, TikTok, Likee, Pinterest\n🎵 *Audio*: SoundCloud, Spotify, VK\n\n⚠️ YouTube is temporarily unavailable\n\nSend a link and I will download it for you\\!",
     "settings": "⚙️ *Settings*\n\nSelect download quality:",
     "preparing": "🔄 Preparing\\.\\.\\.",
     "downloading": "⬇️ Downloading\\.\\.\\.",

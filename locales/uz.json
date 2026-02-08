@@ -1,8 +1,8 @@
 {
-    "start_welcome": "👋 Assalomu alaykum, {name}\\!\n\n🤖 Men orqali YouTube, Instagram, TikTok va boshqa tarmoqlardan video/audio yuklashingiz mumkin\\.\n\n👇 Link yuboring:",
+    "start_welcome": "👋 Assalomu alaykum, {name}\\!\n\n🤖 Men orqali Instagram, TikTok va boshqa tarmoqlardan video/audio yuklashingiz mumkin\\.\n\n⚠️ *YouTube vaqtincha ishlamaydi*\n\n👇 Link yuboring:",
     "language_selected": "✅ Til o'zgartirildi: O'zbekcha",
     "select_language": "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:\n🇺🇸 Please select a language:",
-    "help": "ℹ️ *Yordam*\n\nBot quyidagi tarmoqlarni qo'llab\\-quvvatlaydi:\n\n🎥 *Video*: YouTube, Instagram, TikTok, Likee, Pinterest\n🎵 *Audio*: SoundCloud, Spotify, VK\n\nLink yuboring va men uni yuklab beraman\\!",
+    "help": "ℹ️ *Yordam*\n\nBot quyidagi tarmoqlarni qo'llab\\-quvvatlaydi:\n\n🎥 *Video*: Instagram, TikTok, Likee, Pinterest\n🎵 *Audio*: SoundCloud, Spotify, VK\n\n⚠️ YouTube vaqtincha ishlamaydi\n\nLink yuboring va men uni yuklab beraman\\!",
     "settings": "⚙️ *Sozlamalar*\n\nYuklash sifatini tanlang:",
     "preparing": "🔄 Tayyorlanmoqda\\.\\.\\.",
     "downloading": "⬇️ Yuklanmoqda\\.\\.\\.",

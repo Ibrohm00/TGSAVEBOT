@@ -337,6 +337,65 @@ async def download_twitter(url: str) -> DownloadResult:
         return DownloadResult(success=False, platform='twitter', error=str(e)[:100])
 
 
+async def download_pinterest(url: str) -> DownloadResult:
+    """Pinterest'dan rasm/video yuklash"""
+    try:
+        import yt_dlp
+        
+        temp_dir = tempfile.mkdtemp()
+        output_path = os.path.join(temp_dir, "media")
+        
+        ydl_opts = {
+            'format': 'best',
+            'outtmpl': output_path + '.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': config.download_timeout,
+            'force_ipv4': True,
+            'user_agent': REAL_USER_AGENT,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            title = info.get('title', 'Pinterest')[:50]
+        
+        # Fayl topish
+        actual_path = None
+        media_type = 'image'
+        for f in os.listdir(temp_dir):
+            full_path = os.path.join(temp_dir, f)
+            if f.endswith(('.mp4', '.webm')):
+                actual_path = full_path
+                media_type = 'video'
+                break
+            elif f.endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif')):
+                actual_path = full_path
+                media_type = 'image'
+                break
+        
+        if not actual_path:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return DownloadResult(success=False, platform='pinterest', error="Media topilmadi")
+        
+        file_size = os.path.getsize(actual_path) / (1024 * 1024)
+        
+        return DownloadResult(
+            success=True,
+            platform='pinterest',
+            media_type=media_type,
+            file_path=actual_path,
+            temp_dir=temp_dir,
+            title=title,
+            size_mb=file_size
+        )
+        
+    except Exception as e:
+        logger.error(f"Pinterest download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return DownloadResult(success=False, platform='pinterest', error=str(e)[:100])
+
+
 async def download_media(url: str, media_type: str = "video", no_watermark: bool = False, progress_callback=None) -> DownloadResult:
     """
     Asosiy yuklash funksiyasi - platformani aniqlaydi va yuklaydi

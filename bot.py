@@ -164,8 +164,8 @@ user_rate_limit: Dict[int, float] = defaultdict(float)
 RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov (Relaksatsiya)
 
 # Concurrency Limiting (High Load Strategy)
-# Bir vaqtning o'zida maksimal 5 ta yuklash
-DOWNLOAD_SEMAPHORE = asyncio.Semaphore(5)
+# Bir vaqtning o'zida maksimal 100 ta yuklash (User Request: Maksimal)
+DOWNLOAD_SEMAPHORE = asyncio.Semaphore(100)
 
 
 # ============== Utility Functions ==============

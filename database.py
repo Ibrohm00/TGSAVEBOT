@@ -185,7 +185,39 @@ async def get_channels() -> List[Dict]:
     try:
         cursor = channels_col.find({})
         channels = await cursor.to_list(length=None)
-        return channels
     except Exception as e:
         logger.error(f"Error getting channels: {e}")
         return []
+
+
+# ============== File ID Cache (High Load Strategy) ==============
+
+downloads_col = db['downloads']
+
+async def add_cached_file(url: str, file_id: str, media_type: str):
+    """Fayl ID sini keshlab qo'yish"""
+    try:
+        await downloads_col.update_one(
+            {"url": url},
+            {"$set": {
+                "file_id": file_id,
+                "media_type": media_type,
+                "timestamp": datetime.now()
+            }},
+            upsert=True
+        )
+    except Exception as e:
+        logger.error(f"Error caching file {url}: {e}")
+
+async def get_cached_file(url: str) -> Dict:
+    """Keshlangan faylni olish"""
+    try:
+        data = await downloads_col.find_one({"url": url})
+        if data:
+            # 24 soatdan oshgan bo'lsa, eskirgan deb hisoblash mumkin (ixtiyoriy)
+            # Lekin file_id lar odatda uzoq vaqt ishlaydi
+            return data
+        return None
+    except Exception as e:
+        logger.error(f"Error getting cached file {url}: {e}")
+        return None

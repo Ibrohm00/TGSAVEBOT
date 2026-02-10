@@ -33,7 +33,9 @@ from downloader import (
 from database import (
     init_db, add_user, get_settings as db_get_settings, update_settings, 
     set_user_active, get_users_count, get_active_users_count, 
-    get_new_users_today, get_all_users, get_last_users
+    set_user_active, get_users_count, get_active_users_count, 
+    get_new_users_today, get_all_users, get_last_users,
+    add_cached_file, get_cached_file
 )
 
 # Logging
@@ -157,7 +159,13 @@ user_settings: Dict[int, dict] = {}
 
 # Rate limiting
 user_rate_limit: Dict[int, float] = defaultdict(float)
+# Rate limiting
+user_rate_limit: Dict[int, float] = defaultdict(float)
 RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov (Relaksatsiya)
+
+# Concurrency Limiting (High Load Strategy)
+# Bir vaqtning o'zida maksimal 5 ta yuklash
+DOWNLOAD_SEMAPHORE = asyncio.Semaphore(5)
 
 
 # ============== Utility Functions ==============
@@ -756,121 +764,167 @@ async def process_download(
         parse_mode=ParseMode.MARKDOWN_V2
     )
     
-    # Progress callback
-    progress_state = {'last_update': 0, 'step': 0}
-    
-    async def update_progress(status: str):
-        now = time.time()
-        if now - progress_state['last_update'] > 2:
-            progress_state['step'] += 1
-            dots = "." * (progress_state['step'] % 4)
-            try:
-                await safe_edit(
-                    loading_msg,
-                    f"{emoji} *{escape_md(name)}*\n\n{escape_md(status)}{dots}",
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
-                progress_state['last_update'] = now
-            except:
-                pass
-    
-    result = None
-    
-    try:
-        # Yuklash boshlandi
-        await safe_edit(
-            loading_msg,
-            f"{emoji} *{escape_md(name)}*\n\n{t('downloading')}",
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-        
-        # Yuklash (retry bilan)
-        for attempt in range(2):
-            result = await download_media(url, media_type, no_watermark, update_progress)
+    # 1. Keshni tekshirish (File ID Caching)
+    cached_file = await get_cached_file(url)
+    if cached_file:
+        try:
+            file_id = cached_file.get('file_id')
+            media_type_cached = cached_file.get('media_type')
             
-            if result.success:
-                break
-            elif attempt < 1:
-                await asyncio.sleep(1)
-                logger.info(f"Retry download: {platform}")
-        
-        if not result.success:
-            error_text = result.error or t("error_unknown")
             await safe_edit(
                 loading_msg,
-                f"❌ *Xatolik*\n\n{escape_md(error_text)}",
+                f"{emoji} *{escape_md(name)}*\n\n✅ Fayl topildi, yuborilmoqda...",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
-            return
-        
-        # Uploading
-        await safe_edit(
-            loading_msg,
-            f"{emoji} *{escape_md(name)}*\n\n{t('uploading')}",
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-        
-        # Caption yaratish
-        title = (result.title[:45] + "...") if result.title and len(result.title) > 45 else (result.title or name)
-        caption = f"{emoji} *{escape_md(title)}*"
-        
-        if result.duration:
-            mins = result.duration // 60
-            secs = result.duration % 60
-            caption += f"\n⏱ {mins}\\:{secs:02d}"
-        
-        caption += f"\n📦 {escape_md(f'{result.size_mb:.1f}')}MB"
-        
-        # Media yuborish
-        if result.media_type == 'video':
-            video_file = FSInputFile(result.file_path)
             
-            if result.thumbnail:
-                thumb = BufferedInputFile(result.thumbnail, filename="thumb.jpg")
-                await message.answer_video(
-                    video_file,
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    thumbnail=thumb
-                )
-            else:
-                await message.answer_video(
-                    video_file,
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
-        
-        elif result.media_type == 'audio':
-            audio_file = FSInputFile(result.file_path)
-            await message.answer_audio(
-                audio_file,
-                caption=caption,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                title=title[:60]
-            )
-        
-        elif result.media_type == 'image':
-            photo_file = FSInputFile(result.file_path)
-            await message.answer_photo(
-                photo_file,
-                caption=caption,
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
-        
-        # Loading xabarini o'chirish
-        await safe_delete(loading_msg)
-        
-    except Exception as e:
-        logger.error(f"Download error: {e}", exc_info=True)
+            # Send cached file
+            if media_type_cached == 'audio':
+                await message.reply_audio(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
+            elif media_type_cached == 'image':
+                await message.reply_photo(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
+            else: # video
+                await message.reply_video(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
+            
+            await safe_delete(loading_msg)
+            return
+        except Exception as e:
+            logger.warning(f"Cache hit but failed to send {url}: {e}")
+            # Agar kesh ishlamasa, qayta yuklashga o'tadi
+    
+    # 2. Concurrency limiting (Navbat)
+    if DOWNLOAD_SEMAPHORE.locked():
         await safe_edit(
             loading_msg,
-            f"❌ *Xatolik*\n\n{escape_md(str(e)[:80])}",
+            f"{emoji} *{escape_md(name)}*\n\n⏳ Server band, navbatingizni kuting...",
             parse_mode=ParseMode.MARKDOWN_V2
         )
     
-    finally:
-        # Cleanup (muhim!)
-        if result:
+    async with DOWNLOAD_SEMAPHORE:
+        # Progress callback
+        progress_state = {'last_update': 0, 'step': 0}
+        
+        async def update_progress(status: str):
+            now = time.time()
+            if now - progress_state['last_update'] > 2:
+                progress_state['step'] += 1
+                dots = "." * (progress_state['step'] % 4)
+                try:
+                    await safe_edit(
+                        loading_msg,
+                        f"{emoji} *{escape_md(name)}*\n\n{escape_md(status)}{dots}",
+                        parse_mode=ParseMode.MARKDOWN_V2
+                    )
+                    progress_state['last_update'] = now
+                except:
+                    pass
+        
+        result = None
+        
+        try:
+            # Yuklash boshlandi
+            await safe_edit(
+                loading_msg,
+                f"{emoji} *{escape_md(name)}*\n\n{t('downloading')}",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            
+            # Yuklash (retry bilan)
+            for attempt in range(2):
+                result = await download_media(url, media_type, no_watermark, update_progress)
+                
+                if result.success:
+                    break
+                elif attempt < 1:
+                    await asyncio.sleep(1)
+                    logger.info(f"Retry download: {platform}")
+            
+            if not result.success:
+                error_text = result.error or t("error_unknown")
+                await safe_edit(
+                    loading_msg,
+                    f"❌ *Xatolik*\n\n{escape_md(error_text)}",
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                return
+            
+            # Uploading
+            await safe_edit(
+                loading_msg,
+                f"{emoji} *{escape_md(name)}*\n\n{t('uploading')}",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            
+            # Caption yaratish
+            title = (result.title[:45] + "...") if result.title and len(result.title) > 45 else (result.title or name)
+            caption = f"{emoji} *{escape_md(title)}*"
+            
+            if result.duration:
+                mins = result.duration // 60
+                secs = result.duration % 60
+                caption += f"\n⏱ {mins}\\:{secs:02d}"
+            
+            caption += f"\n📦 {escape_md(f'{result.size_mb:.1f}')}MB"
+            
+            # Media yuborish
+            input_file = FSInputFile(result.file_path)
+            thumb_file = BufferedInputFile(result.thumbnail, filename="thumb.jpg") if result.thumbnail else None
+            
+            sent_msg = None
+            if result.media_type == 'audio':
+                sent_msg = await message.reply_audio(
+                    audio=input_file,
+                    title=result.title[:1000],
+                    duration=result.duration,
+                    poster=thumb_file,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+            elif result.media_type == 'image':
+                sent_msg = await message.reply_photo(
+                    photo=input_file,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+            else:
+                sent_msg = await message.reply_video(
+                    video=input_file,
+                    caption=caption,
+                    duration=result.duration,
+                    width=1920,
+                    height=1080,
+                    thumbnail=thumb_file,
+                    supports_streaming=True,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                
+            # 3. Keshga saqlash (File ID Caching)
+            if sent_msg:
+                file_id = None
+                if result.media_type == 'audio' and sent_msg.audio:
+                    file_id = sent_msg.audio.file_id
+                elif result.media_type == 'image' and sent_msg.photo:
+                    file_id = sent_msg.photo[-1].file_id
+                elif result.media_type == 'video' and sent_msg.video:
+                    file_id = sent_msg.video.file_id
+                
+                if file_id:
+                    await add_cached_file(url, file_id, result.media_type)
+                    logger.info(f"Cached file_id for {url}")
+            
+            # Loading xabarini o'chirish
+            await safe_delete(loading_msg)
+            
+        except Exception as e:
+            logger.error(f"Download error: {e}", exc_info=True)
+            await safe_edit(
+                loading_msg,
+                f"❌ *Xatolik*\n\n{escape_md(str(e)[:80])}",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        
+        finally:
+            # Cleanup (muhim!)
+            if result:
             result.cleanup()
 
 

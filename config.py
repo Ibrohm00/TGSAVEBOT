@@ -26,14 +26,14 @@ class BotConfig:
     mongo_uri: str = os.getenv("MONGO_URI", "mongodb+srv://ibrohm135:mansur5754@cluster0.intw8qq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
     db_name: str = "media_downloader_bot"
     
-    # Limitlar
-    max_video_size_mb: int = 50      # Telegram limit
-    max_audio_size_mb: int = 50
-    max_duration_seconds: int = 1800  # 30 daqiqa (ko'proq)
+    # Limitlar (Olib tashlandi / Kengaytirildi)
+    max_video_size_mb: int = 2000    # 2GB (Telegram Local Bot API uchun)
+    max_audio_size_mb: int = 2000
+    max_duration_seconds: int = 14400 # 4 soat
     
     # Timeouts
-    download_timeout: int = 180       # 3 daqiqa (yuqori sifat uchun ko'proq vaqt)
-    request_timeout: int = 60
+    download_timeout: int = 600       # 10 daqiqa (katta fayllar uchun)
+    request_timeout: int = 120
     
     # Sifat - MAKSIMAL
     default_video_quality: str = "1080p"  # Eng yuqori

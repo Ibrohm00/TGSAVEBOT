@@ -157,7 +157,7 @@ user_settings: Dict[int, dict] = {}
 
 # Rate limiting
 user_rate_limit: Dict[int, float] = defaultdict(float)
-RATE_LIMIT_SECONDS = 3  # Har 3 sekundda 1 ta so'rov
+RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov (Relaksatsiya)
 
 
 # ============== Utility Functions ==============

@@ -151,13 +151,8 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
             
             # Davomiylik tekshirish
             if duration > config.max_duration_seconds:
-                return DownloadResult(
-                    success=False,
-                    platform='youtube',
-                    title=title,
-                    duration=duration,
-                    error=f"Video juda uzun ({duration//60}:{duration%60:02d} > {config.max_duration_seconds//60} daqiqa)"
-                )
+                logger.warning(f"Duration {duration}s > {config.max_duration_seconds}s. Large file expected.")
+                # Continue downloading despite duration
         
         # Yuklash
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -182,13 +177,8 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
         max_size = config.max_audio_size_mb if media_type == "audio" else config.max_video_size_mb
         
         if file_size > max_size:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return DownloadResult(
-                success=False,
-                platform='youtube',
-                title=title,
-                error=f"Fayl juda katta ({file_size:.1f}MB > {max_size}MB)"
-            )
+            logger.warning(f"File size {file_size:.1f}MB > {max_size}MB. Telegram might fail to upload.")
+            # We don't return error here, just warn and try to upload (or let bot.py handle split/fail)
         
         # Thumbnail
         thumbnail = None
@@ -528,13 +518,9 @@ async def download_generic(url: str, platform: str) -> DownloadResult:
         file_size = os.path.getsize(actual_path) / (1024 * 1024)
         
         # Hajm tekshirish
+        # Hajm tekshirish (faqat ogohlantirish)
         if file_size > config.max_video_size_mb:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return DownloadResult(
-                success=False,
-                platform=platform,
-                error=f"Fayl juda katta ({file_size:.1f}MB)"
-            )
+             logger.warning(f"File size {file_size:.1f}MB > limit. Telegram might fail.")
         
         return DownloadResult(
             success=True,
@@ -652,12 +638,7 @@ async def download_vk(url: str) -> DownloadResult:
         file_size = os.path.getsize(actual_path) / (1024 * 1024)
         
         if file_size > config.max_video_size_mb:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return DownloadResult(
-                success=False,
-                platform='vk',
-                error=f"Fayl juda katta ({file_size:.1f}MB)"
-            )
+             logger.warning(f"File size {file_size:.1f}MB > limit.")
         
         return DownloadResult(
             success=True,
@@ -711,12 +692,7 @@ async def download_likee(url: str) -> DownloadResult:
         file_size = os.path.getsize(actual_path) / (1024 * 1024)
         
         if file_size > config.max_video_size_mb:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return DownloadResult(
-                success=False,
-                platform='likee',
-                error=f"Video juda katta ({file_size:.1f}MB)"
-            )
+             logger.warning(f"File size {file_size:.1f}MB > limit.")
         
         return DownloadResult(
             success=True,
@@ -810,12 +786,7 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
         file_size = os.path.getsize(actual_path) / (1024 * 1024)
         
         if file_size > config.max_video_size_mb:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return DownloadResult(
-                success=False,
-                platform='tiktok',
-                error=f"Video juda katta ({file_size:.1f}MB)"
-            )
+             logger.warning(f"File size {file_size:.1f}MB > limit.")
         
         return DownloadResult(
             success=True,

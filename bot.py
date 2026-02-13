@@ -751,11 +751,11 @@ async def process_download(
             
             # Send cached file
             if media_type_cached == 'audio':
-                await message.reply_audio(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
+                await message.answer_audio(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
             elif media_type_cached == 'image':
-                await message.reply_photo(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
+                await message.answer_photo(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
             else: # video
-                await message.reply_video(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
+                await message.answer_video(file_id, caption=f"{emoji} {escape_md(name)} via @tguzsavebot")
             
             await safe_delete(loading_msg)
             return
@@ -843,7 +843,7 @@ async def process_download(
             
             sent_msg = None
             if result.media_type == 'audio':
-                sent_msg = await message.reply_audio(
+                sent_msg = await message.answer_audio(
                     audio=input_file,
                     title=result.title[:1000],
                     duration=result.duration,
@@ -852,13 +852,13 @@ async def process_download(
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
             elif result.media_type == 'image':
-                sent_msg = await message.reply_photo(
+                sent_msg = await message.answer_photo(
                     photo=input_file,
                     caption=caption,
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
             else:
-                sent_msg = await message.reply_video(
+                sent_msg = await message.answer_video(
                     video=input_file,
                     caption=caption,
                     duration=result.duration,

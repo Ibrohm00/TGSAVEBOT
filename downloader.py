@@ -76,140 +76,141 @@ def extract_url(text: str) -> Optional[str]:
 async def download_youtube(url: str, media_type: str = "video") -> DownloadResult:
     """
     YouTube'dan video yoki audio yuklash (MAKSIMAL SIFAT)
-    
-    Args:
-        url: YouTube URL
-        media_type: 'video' yoki 'audio'
+    Bot detection bypass bilan
     """
-    try:
-        import yt_dlp
-        
-        temp_dir = tempfile.mkdtemp()
-        
-        if media_type == "audio":
-            # MP3 yuklash - MAKSIMAL SIFAT (320kbps)
-            output_path = os.path.join(temp_dir, "audio.mp3")
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': output_path.replace('.mp3', '.%(ext)s'),
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '320',  # Maksimal sifat
-                }],
-                'quiet': True,
-                'no_warnings': True,
-                'socket_timeout': config.download_timeout,
-                'force_ipv4': True,
-                'user_agent': REAL_USER_AGENT,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'ios'],
-                    }
-                },
-            }
-        else:
-            # Video yuklash - MAKSIMAL SIFAT
-            output_path = os.path.join(temp_dir, "video.mp4")
+    temp_dir = tempfile.mkdtemp()
+    
+    # YouTube bot detection ni chetlab o'tish uchun client kombinatsiyalari
+    client_configs = [
+        ['default', 'mweb'],      # Eng ishonchli
+        ['tv_embedded'],           # TV client (kam tekshiriladi)
+        ['web_creator', 'mweb'],   # Creator client
+    ]
+    
+    for client_attempt, clients in enumerate(client_configs):
+        try:
+            import yt_dlp
             
-            # Eng yaxshi video + audio birlashtirish
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-                'outtmpl': output_path.replace('.mp4', '.%(ext)s'),
+            base_opts = {
                 'quiet': True,
                 'no_warnings': True,
                 'socket_timeout': config.download_timeout,
-                'merge_output_format': 'mp4',
-                # Sifatni saqlash uchun
-                'postprocessor_args': {
-                    'ffmpeg': ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k']
-                },
                 'force_ipv4': True,
                 'user_agent': REAL_USER_AGENT,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'ios'],
+                        'player_client': clients,
                     }
                 },
+                'http_headers': {
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                },
             }
-        
-        # Info olish (with client spoofing)
-        info_opts = {
-            'quiet': True,
-            'user_agent': REAL_USER_AGENT,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'ios'],
+            
+            if media_type == "audio":
+                output_path = os.path.join(temp_dir, "audio.mp3")
+                ydl_opts = {
+                    **base_opts,
+                    'format': 'bestaudio/best',
+                    'outtmpl': output_path.replace('.mp3', '.%(ext)s'),
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '320',
+                    }],
                 }
-            }
-        }
-        with yt_dlp.YoutubeDL(info_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            title = info.get('title', 'Video')
-            duration = info.get('duration', 0)
-            video_id = info.get('id', '')
+            else:
+                output_path = os.path.join(temp_dir, "video.mp4")
+                ydl_opts = {
+                    **base_opts,
+                    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+                    'outtmpl': output_path.replace('.mp4', '.%(ext)s'),
+                    'merge_output_format': 'mp4',
+                    'postprocessor_args': {
+                        'ffmpeg': ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k']
+                    },
+                }
             
-            # Davomiylik tekshirish
-            if duration > config.max_duration_seconds:
-                logger.warning(f"Duration {duration}s > {config.max_duration_seconds}s. Large file expected.")
-                # Continue downloading despite duration
-        
-        # Yuklash
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        
-        # Fayl topish
-        actual_path = None
-        for f in os.listdir(temp_dir):
-            if f.endswith(('.mp4', '.mp3', '.m4a', '.webm')):
-                actual_path = os.path.join(temp_dir, f)
-                break
-        
-        if not actual_path or not os.path.exists(actual_path):
+            # Info + Download bir vaqtda
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                title = info.get('title', 'Video')
+                duration = info.get('duration', 0)
+                video_id = info.get('id', '')
+            
+            # Fayl topish
+            actual_path = None
+            for f in os.listdir(temp_dir):
+                if f.endswith(('.mp4', '.mp3', '.m4a', '.webm')):
+                    actual_path = os.path.join(temp_dir, f)
+                    break
+            
+            if not actual_path or not os.path.exists(actual_path):
+                if client_attempt < len(client_configs) - 1:
+                    logger.warning(f"YouTube: File not found with clients {clients}, trying next...")
+                    continue
+                return DownloadResult(
+                    success=False,
+                    platform='youtube',
+                    temp_dir=temp_dir,
+                    error="Fayl topilmadi"
+                )
+            
+            file_size = os.path.getsize(actual_path) / (1024 * 1024)
+            
+            # Thumbnail
+            thumbnail = None
+            try:
+                thumb_url = f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
+                async with aiohttp.ClientSession(connector=get_connector()) as session:
+                    async with session.get(thumb_url, timeout=10) as resp:
+                        if resp.status == 200:
+                            thumbnail = await resp.read()
+            except:
+                pass
+            
+            logger.info(f"YouTube download OK with clients {clients}")
+            
+            return DownloadResult(
+                success=True,
+                platform='youtube',
+                media_type=media_type,
+                file_path=actual_path,
+                temp_dir=temp_dir,
+                title=title,
+                duration=duration,
+                size_mb=file_size,
+                thumbnail=thumbnail
+            )
+            
+        except Exception as e:
+            error_str = str(e)
+            if 'Sign in' in error_str or 'bot' in error_str.lower():
+                logger.warning(f"YouTube bot detection with clients {clients} (attempt {client_attempt+1})")
+                if client_attempt < len(client_configs) - 1:
+                    # Eski fayllarni tozalab, keyingi clientni sinash
+                    for f in os.listdir(temp_dir):
+                        try:
+                            os.remove(os.path.join(temp_dir, f))
+                        except:
+                            pass
+                    continue
+            
+            logger.error(f"YouTube download error: {e}")
             return DownloadResult(
                 success=False,
                 platform='youtube',
-                error="Fayl topilmadi"
+                temp_dir=temp_dir,
+                error=str(e)[:100]
             )
-        
-        # Hajm tekshirish
-        file_size = os.path.getsize(actual_path) / (1024 * 1024)
-        max_size = config.max_audio_size_mb if media_type == "audio" else config.max_video_size_mb
-        
-        if file_size > max_size:
-            logger.warning(f"File size {file_size:.1f}MB > {max_size}MB. Telegram might fail to upload.")
-            # We don't return error here, just warn and try to upload (or let bot.py handle split/fail)
-        
-        # Thumbnail
-        thumbnail = None
-        try:
-            thumb_url = f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
-            async with aiohttp.ClientSession(connector=get_connector()) as session:
-                async with session.get(thumb_url, timeout=10) as resp:
-                    if resp.status == 200:
-                        thumbnail = await resp.read()
-        except:
-            pass
-        
-        return DownloadResult(
-            success=True,
-            platform='youtube',
-            media_type=media_type,
-            file_path=actual_path,
-            temp_dir=temp_dir,
-            title=title,
-            duration=duration,
-            size_mb=file_size,
-            thumbnail=thumbnail
-        )
-        
-    except Exception as e:
-        logger.error(f"YouTube download error: {e}")
-        return DownloadResult(
-            success=False,
-            platform='youtube',
-            error=str(e)[:100]
-        )
+    
+    return DownloadResult(
+        success=False,
+        platform='youtube',
+        temp_dir=temp_dir,
+        error="Barcha urinishlar muvaffaqiyatsiz"
+    )
 
 
 

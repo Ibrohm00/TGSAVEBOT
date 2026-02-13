@@ -847,7 +847,7 @@ async def process_download(
                     audio=input_file,
                     title=result.title[:1000],
                     duration=result.duration,
-                    poster=thumb_file,
+                    thumbnail=thumb_file,
                     caption=caption,
                     parse_mode=ParseMode.MARKDOWN_V2
                 )

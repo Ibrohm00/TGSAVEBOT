@@ -33,7 +33,6 @@ from downloader import (
 from database import (
     init_db, add_user, get_settings as db_get_settings, update_settings, 
     set_user_active, get_users_count, get_active_users_count, 
-    set_user_active, get_users_count, get_active_users_count, 
     get_new_users_today, get_all_users, get_last_users,
     add_cached_file, get_cached_file
 )
@@ -132,39 +131,14 @@ dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
-# Register i18n middleware
-from i18n_middleware import I18nMiddleware
-dp.update.middleware(I18nMiddleware())
-
-
-# User settings cache (Transient state + cached settings)
-user_settings: Dict[int, dict] = {}
-# ... (rest of file) ...
-# ...
-async def main():
-    await init_db()
-    
-    # Session creation (Singleton)
-    session = IPv4Session()
-    # Pre-create internal session (optional but good for testing)
-    await session.create_session()
-    
-    # Bot init - Pass the WRAPPER 'session', not the internal 'client_session'
-    bot = Bot(token=config.token, session=session)
-    await bot.delete_webhook(drop_pending_updates=True)
-
-
 # User settings cache (Transient state + cached settings)
 user_settings: Dict[int, dict] = {}
 
 # Rate limiting
 user_rate_limit: Dict[int, float] = defaultdict(float)
-# Rate limiting
-user_rate_limit: Dict[int, float] = defaultdict(float)
-RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov (Relaksatsiya)
+RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov
 
 # Concurrency Limiting (High Load Strategy)
-# Bir vaqtning o'zida maksimal 100 ta yuklash (User Request: Maksimal)
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(100)
 
 
@@ -667,8 +641,6 @@ async def process_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
 
 # ============== Link Handler ==============
 
-# ============== Link Handler ==============
-
 @router.message(F.text)
 async def handle_message(message: Message, t):
     """Xabarlarni qayta ishlash (optimized)"""
@@ -925,7 +897,7 @@ async def process_download(
         finally:
             # Cleanup (muhim!)
             if result:
-            result.cleanup()
+                result.cleanup()
 
 
 # ============== Callbacks ==============
@@ -1033,69 +1005,6 @@ async def handle_cancel(callback: CallbackQuery):
 
 # ============== Main ==============
 
-async def main():
-    """Botni ishga tushirish (IPv4 forced inside async loop)"""
-    logger.info("📥 Media Downloader Bot v3.0 ishga tushmoqda...")
-    
-    # DB ni ishga tushirish
-    await init_db()
-    
-
-    # Force IPv4 via TCPConnector inside the loop!
-    from aiogram.client.session.aiohttp import AiohttpSession
-    from aiohttp import TCPConnector, ClientSession, AsyncResolver
-    import socket
-    
-    def get_dns_resolver():
-        return AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
-
-    class IPv4Session(AiohttpSession):
-        _singleton_session: Optional[ClientSession] = None
-
-        async def create_session(self) -> ClientSession:
-            if self._singleton_session is None or self._singleton_session.closed:
-                logger.info("🔌 IPv4Session: Creating Singleton ClientSession with Google DNS...")
-                resolver = get_dns_resolver()
-                connector = TCPConnector(
-                    family=socket.AF_INET, 
-                    ssl=True, 
-                    resolver=resolver,
-                    limit=100, # Connection limit
-                    ttl_dns_cache=300
-                )
-                self._singleton_session = ClientSession(connector=connector, json_serialize=self.json_dumps)
-            else:
-                logger.info("🔌 IPv4Session: Reusing Singleton ClientSession")
-            
-            return self._singleton_session
-
-        async def close(self):
-            # Only close if explicitly called and we own the session
-            logger.info("🔌 IPv4Session: Close requested")
-            if self._singleton_session and not self._singleton_session.closed:
-                logger.info("🔌 IPv4Session: Closing Singleton session")
-                await self._singleton_session.close()
-            await super().close()
-
-    session = IPv4Session()
-    
-    # Initialize Bot here
-    global bot 
-    bot = Bot(token=config.token, session=session)
-    
-    # Middleware registratsiyasi
-    from i18n_middleware import I18nMiddleware
-    dp.update.middleware(I18nMiddleware())
-
-    # Middleware registratsiyasi (Admin va Message/Callback uchun)
-    from middlewares import SubscriptionMiddleware
-    dp.update.middleware(SubscriptionMiddleware())
-    
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
-
 # ============== Subscription Commands ==============
 
 @router.callback_query(F.data == "check_subscription")
@@ -1130,7 +1039,7 @@ async def cmd_add_channel(message: Message):
         
         # Bot admin ekanligini tekshirish
         member = await bot.get_chat_member(chat.id, bot.id)
-        if member.status != ChatMemberStatus.ADMINISTRATOR:
+        if member.status not in ("administrator", "creator"):
             await message.answer("❌ Bot ushbu kanalda admin emas!", parse_mode=ParseMode.MARKDOWN)
             return
 
@@ -1217,19 +1126,29 @@ async def main():
     
     # Session creation (Singleton)
     session = IPv4Session()
-    # Pre-create just to initialize singleton
     await session.create_session()
     
-    # Bot init (Pass the wrapper 'session')
+    # Bot init
+    global bot
     bot = Bot(token=config.token, session=session)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    # Start Web Server for UptimeRobot
+    # Middleware registratsiyasi
+    from i18n_middleware import I18nMiddleware
+    dp.update.middleware(I18nMiddleware())
+    
+    from middlewares import SubscriptionMiddleware
+    dp.update.middleware(SubscriptionMiddleware())
+    
+    # Start Web Server for Health Check
     await start_web_server()
     
     # Start Polling
     logger.info("🚀 Bot ishga tushdi!")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
     try:

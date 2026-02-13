@@ -185,6 +185,7 @@ async def get_channels() -> List[Dict]:
     try:
         cursor = channels_col.find({})
         channels = await cursor.to_list(length=None)
+        return channels
     except Exception as e:
         logger.error(f"Error getting channels: {e}")
         return []

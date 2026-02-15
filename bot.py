@@ -142,6 +142,44 @@ RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(100)
 
 
+async def system_startup_check():
+    """Tizimni ishga tushirishdan oldin tekshirish"""
+    logger.info("🛠️ System Startup Checks...")
+    
+    # 1. Config
+    if not config.token:
+        logger.error("❌ BOT_TOKEN is missing!")
+        return False
+    if not config.admin_ids:
+        logger.warning("⚠️ No ADMIN_IDS configured!")
+    
+    # 2. Database
+    try:
+        from database import client
+        await client.admin.command('ping')
+        logger.info("✅ Database connection OK")
+    except Exception as e:
+        logger.error(f"❌ Database connection FAILED: {e}")
+        return False
+        
+    return True
+
+
+def generate_caption(result: DownloadResult, name: str, emoji: str) -> str:
+    """Caption yaratish yordamchisi"""
+    title = (result.title[:45] + "...") if result.title and len(result.title) > 45 else (result.title or name)
+    caption = f"{emoji} *{escape_md(title)}*"
+    
+    if result.duration:
+        mins = result.duration // 60
+        secs = result.duration % 60
+        caption += f"\n⏱ {mins}\\:{secs:02d}"
+    
+    caption += f"\n📦 {escape_md(f'{result.size_mb:.1f}')}MB"
+    caption += f"\n\n🤖 @tguzsavebot"
+    return caption
+
+
 # ============== Utility Functions ==============
 
 async def get_user_settings(user_id: int) -> dict:
@@ -413,9 +451,8 @@ async def cmd_admin(message: Message):
 
 @router.callback_query(F.data == "delete_msg")
 async def delete_msg(callback: CallbackQuery):
-    if callback.from_user.id not in config.admin_ids:
-        await callback.answer("❌ Siz admin emassiz!", show_alert=True)
-        return
+    """Xabarni o'chirish (barcha foydalanuvchilar uchun)"""
+    await callback.answer()
     await safe_delete(callback.message)
 
 
@@ -453,9 +490,6 @@ async def handle_admin_callback(callback: CallbackQuery, state: FSMContext):
         # await callback.answer() # safe_edit da answer shart emas agar message o'zgarsa
     
     elif action == "users":
-        if callback.from_user.id not in config.admin_ids:
-             await callback.answer("❌ Siz admin emassiz!", show_alert=True)
-             return
 
         users = await get_last_users(10)
         text = "👥 *Oxirgi 10 ta foydalanuvchi:*\n\n"
@@ -544,7 +578,7 @@ async def cmd_broadcast(message: Message):
         return
     
     text = parts[1]
-    users = await get_all_users()
+    users = await get_all_users(active_only=True)
     
     msg = await message.answer(f"🚀 Xabar yuborish boshlandi ({len(users)} ta)...")
     
@@ -555,10 +589,11 @@ async def cmd_broadcast(message: Message):
         try:
             await bot.send_message(user_id, text, parse_mode=ParseMode.MARKDOWN_V2)
             sent += 1
+            await asyncio.sleep(0.05)
         except Exception as e:
             blocked += 1
             await set_user_active(user_id, False)
-            await asyncio.sleep(0.05)  # Flood limit oldini olish
+        await asyncio.sleep(0.035)  # Telegram flood limit: ~30 msg/sec
     
     await msg.edit_text(
         f"✅ *Xabar yuborildi*\n\n"
@@ -585,13 +620,17 @@ async def process_broadcast_message(message: Message, state: FSMContext):
 @router.callback_query(BroadcastState.confirm_send, F.data == "broadcast:send")
 async def process_broadcast_send(callback: CallbackQuery, state: FSMContext):
     """Broadcastni yuborish"""
+    if callback.from_user.id not in config.admin_ids:
+        await callback.answer("❌ Siz admin emassiz!", show_alert=True)
+        return
+    await callback.answer()
     await callback.message.edit_text("🚀 Xabar yuborilmoqda...")
     
     data = await state.get_data()
     message_id = data['message_id']
     chat_id = data['chat_id']
     
-    users = await get_all_users()
+    users = await get_all_users(active_only=True)
     sent = 0
     blocked = 0
     
@@ -600,10 +639,11 @@ async def process_broadcast_send(callback: CallbackQuery, state: FSMContext):
             # Copy message - rasm/video/matn hammasini qo'llab-quvvatlaydi
             await bot.copy_message(chat_id=user_id, from_chat_id=chat_id, message_id=message_id)
             sent += 1
+            await asyncio.sleep(0.05)
         except Exception:
             blocked += 1
             await set_user_active(user_id, False)
-            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.035)  # Telegram flood limit: ~30 msg/sec
     
     await callback.message.edit_text(
         f"✅ *Xabar yuborildi*\n\n"
@@ -647,12 +687,8 @@ async def handle_message(message: Message, t):
     user_id = message.from_user.id
     text = message.text.strip()
     
-    # Bazaga qo'shish/yangilash
-    await add_user(
-        user_id, 
-        message.from_user.username, 
-        message.from_user.full_name
-    )
+    # Aktiv statusini yangilash (bazaga qo'shish emas — /start da qilinadi)
+    await set_user_active(user_id, True)
     
     # Rate limit tekshirish
     if not check_rate_limit(user_id):
@@ -827,15 +863,8 @@ async def process_download(
             )
             
             # Caption yaratish
-            title = (result.title[:45] + "...") if result.title and len(result.title) > 45 else (result.title or name)
-            caption = f"{emoji} *{escape_md(title)}*"
-            
-            if result.duration:
-                mins = result.duration // 60
-                secs = result.duration % 60
-                caption += f"\n⏱ {mins}\\:{secs:02d}"
-            
-            caption += f"\n📦 {escape_md(f'{result.size_mb:.1f}')}MB"
+            # Caption yaratish
+            caption = generate_caption(result, name, emoji)
             
             # Media yuborish
             input_file = FSInputFile(result.file_path)
@@ -1122,6 +1151,10 @@ async def start_web_server():
     logger.info("✅ Health check server started on port 7860")
 
 async def main():
+    if not await system_startup_check():
+        logger.error("🛑 Startup checks failed! Exiting...")
+        return
+
     await init_db()
     
     # Session creation (Singleton)

@@ -8,7 +8,8 @@ import asyncio
 import tempfile
 import shutil
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+import functools
+from typing import Optional, Dict, Any, List, Tuple, Callable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -49,9 +50,50 @@ class DownloadResult:
                 pass
 
 
+# Pre-compiled regex patterns
+URL_PATTERN = re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+')
+
+def safe_download(platform_name: str):
+    """
+    Decorator for safe download execution with consistent error handling and cleanup.
+    """
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                # Extract temp_dir if it was created in the function scope (locals)
+                # Note: This is tricky with decorators. Better to let the function handle creation
+                # but we can try to catch common errors.
+                # Actually, the best pattern is to let the function return a result, 
+                # and if it raises, we catch it. But we can't easily access 'temp_dir' local var.
+                # So we will stick to the pattern: function MUST cleanup its own temp_dir on error if not using this?
+                # improved strategy: we will just log and return error result.
+                # Cleanup is handled by the caller (bot.py) calling result.cleanup() if result exists.
+                # BUT, if exception happens, we might lose the temp_dir reference if not returned.
+                # So the manual try...except inside functions IS safer for temp_dir cleanup.
+                # HOWEVER, we can reduce code duplication.
+                
+                logger.error(f"{platform_name} download error: {e}")
+                return DownloadResult(
+                    success=False, 
+                    platform=platform_name, 
+                    error=str(e)[:100]
+                )
+        return wrapper
+    return decorator
+
+
+# Optimized detect_platform
 def detect_platform(url: str) -> Optional[str]:
-    """URL dan platformani aniqlash"""
+    """URL dan platformani aniqlash (optimized)"""
     url_lower = url.lower()
+    
+    # Fast checks for common platforms
+    if 'youtube' in url_lower or 'youtu.be' in url_lower: return 'youtube'
+    if 'instagram' in url_lower: return 'instagram'
+    if 'tiktok' in url_lower: return 'tiktok'
     
     for platform_id, platform_info in SUPPORTED_PLATFORMS.items():
         for pattern in platform_info['patterns']:
@@ -63,13 +105,9 @@ def detect_platform(url: str) -> Optional[str]:
 
 def extract_url(text: str) -> Optional[str]:
     """Matndan URL ni ajratib olish"""
-    # URL pattern
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-    
-    match = re.search(url_pattern, text)
+    match = URL_PATTERN.search(text)
     if match:
         return match.group(0)
-    
     return None
 
 
@@ -268,6 +306,8 @@ async def download_instagram(url: str) -> DownloadResult:
         
     except Exception as e:
         logger.error(f"Instagram download error: {e}")
+        if 'temp_dir' in locals() and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='instagram', error=str(e)[:100])
 
 
@@ -325,6 +365,8 @@ async def download_twitter(url: str) -> DownloadResult:
         
     except Exception as e:
         logger.error(f"Twitter download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='twitter', error=str(e)[:100])
 
 
@@ -594,6 +636,8 @@ async def download_soundcloud(url: str) -> DownloadResult:
         
     except Exception as e:
         logger.error(f"SoundCloud download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='soundcloud', error=str(e)[:100])
 
 
@@ -654,6 +698,8 @@ async def download_vk(url: str) -> DownloadResult:
         
     except Exception as e:
         logger.error(f"VK download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='vk', error=str(e)[:100])
 
 
@@ -708,6 +754,8 @@ async def download_likee(url: str) -> DownloadResult:
         
     except Exception as e:
         logger.error(f"Likee download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='likee', error=str(e)[:100])
 
 
@@ -802,6 +850,8 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
         
     except Exception as e:
         logger.error(f"TikTok download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='tiktok', error=str(e)[:100])
 
 
@@ -864,4 +914,6 @@ async def download_spotify(url: str) -> DownloadResult:
         
     except Exception as e:
         logger.error(f"Spotify download error: {e}")
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return DownloadResult(success=False, platform='spotify', error=str(e)[:100])

@@ -25,6 +25,9 @@ async def init_db():
         # Index yaratish (tez ishlashi uchun)
         await users_col.create_index("user_id", unique=True)
         await settings_col.create_index("user_id", unique=True)
+        await downloads_col.create_index("url", unique=True)
+        # TTL Index - 48 soatdan keyin keshni tozalash
+        await downloads_col.create_index("timestamp", expireAfterSeconds=172800)
         
     except Exception as e:
         logger.error(f"❌ MongoDB ga ulanishda xatolik: {e}")
@@ -105,9 +108,11 @@ async def get_new_users_today() -> int:
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     return await users_col.count_documents({"joined_date": {"$gte": today}})
 
-async def get_all_users() -> List[int]:
+async def get_all_users(active_only: bool = False) -> List[int]:
     """Barcha user ID larini olish (broadcast uchun)"""
-    cursor = users_col.find({}, {"user_id": 1})
+    query = {"is_active": True} if active_only else {}
+    # Projection only _id: 0, user_id: 1 for minimal latency
+    cursor = users_col.find(query, {"user_id": 1, "_id": 0})
     users = await cursor.to_list(length=None)
     return [user['user_id'] for user in users]
 
@@ -128,10 +133,13 @@ async def get_last_users(limit: int = 10) -> List[Tuple[int, str, str, str]]:
 
 async def set_user_active(user_id: int, is_active: bool):
     """User statusini o'zgartirish (bloklaganda)"""
-    await users_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"is_active": is_active}}
-    )
+    try:
+        await users_col.update_one(
+            {"user_id": user_id},
+            {"$set": {"is_active": is_active}}
+        )
+    except Exception as e:
+        logger.error(f"Error setting user {user_id} active={is_active}: {e}")
 
 async def set_user_language(user_id: int, lang: str):
     """Foydalanuvchi tilini o'zgartirish"""
@@ -166,6 +174,8 @@ async def add_channel(channel_id: int, title: str, username: str, invite_link: s
             }},
             upsert=True
         )
+        global _channels_cache
+        _channels_cache = None  # Cache invalidation
         return True
     except Exception as e:
         logger.error(f"Error adding channel {channel_id}: {e}")
@@ -175,16 +185,32 @@ async def remove_channel(channel_id: int):
     """Kanalni o'chirish"""
     try:
         await channels_col.delete_one({"channel_id": channel_id})
+        global _channels_cache
+        _channels_cache = None  # Cache invalidation
         return True
     except Exception as e:
         logger.error(f"Error removing channel {channel_id}: {e}")
         return False
 
+# Channels Cache
+_channels_cache = None
+_channels_cache_time = 0
+CACHE_TTL = 60  # seconds
+
 async def get_channels() -> List[Dict]:
-    """Barcha kanallarni olish"""
+    """Barcha kanallarni olish (Cached)"""
+    global _channels_cache, _channels_cache_time
+    
+    now = datetime.now().timestamp()
+    if _channels_cache is not None and (now - _channels_cache_time) < CACHE_TTL:
+        return _channels_cache
+
     try:
         cursor = channels_col.find({})
         channels = await cursor.to_list(length=None)
+        
+        _channels_cache = channels
+        _channels_cache_time = now
         return channels
     except Exception as e:
         logger.error(f"Error getting channels: {e}")

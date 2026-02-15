@@ -345,6 +345,39 @@ async def safe_delete(msg: Message) -> bool:
         return False
 
 
+async def safe_send_media(message: Message, media_type: str, file: Any, **kwargs):
+    """Media yuborish (xavfsiz va retry bilan)"""
+    method = {
+        'video': message.answer_video,
+        'audio': message.answer_audio,
+        'photo': message.answer_photo,
+        'document': message.answer_document,
+    }.get(media_type)
+    
+    if not method:
+        return None
+
+    for attempt in range(3):
+        try:
+            return await method(file, **kwargs)
+        except TelegramRetryAfter as e:
+            logger.warning(f"FloodWait: Sleeping {e.retry_after}s")
+            await asyncio.sleep(e.retry_after)
+        except TelegramNetworkError:
+            logger.warning(f"Network error, retrying... ({attempt+1}/3)")
+            await asyncio.sleep(1)
+        except TelegramEntityTooLarge:
+            await message.answer("❌ Fayl hajmi Telegram limitidan katta (50MB/2GB).", parse_mode="Markdown")
+            return None
+        except Exception as e:
+            logger.error(f"Send media error: {e}")
+            if attempt < 2:
+                await asyncio.sleep(0.5)
+            else:
+                await message.answer("❌ Media yuborishda xatolik yuz berdi.", parse_mode="Markdown")
+    return None
+
+
 # ============== Commands ==============
 
 @router.message(Command("start"))
@@ -876,14 +909,16 @@ async def process_download(
             # Caption yaratish
             caption = generate_caption(result, name, emoji)
             
-            # Media yuborish
+            # Media yuborish (Safe Wrapper orqali)
             input_file = FSInputFile(result.file_path)
             thumb_file = BufferedInputFile(result.thumbnail, filename="thumb.jpg") if result.thumbnail else None
             
             sent_msg = None
             if result.media_type == 'audio':
-                sent_msg = await message.answer_audio(
-                    audio=input_file,
+                sent_msg = await safe_send_media(
+                    message, 
+                    'audio', 
+                    input_file,
                     title=result.title[:1000],
                     duration=result.duration,
                     thumbnail=thumb_file,
@@ -891,14 +926,18 @@ async def process_download(
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
             elif result.media_type == 'image':
-                sent_msg = await message.answer_photo(
-                    photo=input_file,
+                sent_msg = await safe_send_media(
+                    message, 
+                    'photo', 
+                    input_file,
                     caption=caption,
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
             else:
-                sent_msg = await message.answer_video(
-                    video=input_file,
+                sent_msg = await safe_send_media(
+                    message, 
+                    'video', 
+                    input_file,
                     caption=caption,
                     duration=result.duration,
                     width=1920,
@@ -1159,6 +1198,7 @@ async def start_web_server():
     await site.start()
     logger.info("✅ Health check server started on port 7860")
 
+
 async def main():
     if not await system_startup_check():
         logger.error("🛑 Startup checks failed! Exiting...")
@@ -1167,35 +1207,47 @@ async def main():
     await init_db()
     
     # Session creation (Singleton)
-    session = IPv4Session()
-    await session.create_session()
-    
-    # Bot init
+    # DNS Fix
+    from aiohttp.resolver import AsyncResolver
+    from aiohttp import TCPConnector
+    resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
+    connector = TCPConnector(resolver=resolver, family=2, ssl=False) # AF_INET=2
+
+    session = AiohttpSession(connector=connector)
     global bot
     bot = Bot(token=config.token, session=session)
-    await bot.delete_webhook(drop_pending_updates=True)
     
-    # Middleware registratsiyasi
-    from i18n_middleware import I18nMiddleware
-    dp.update.middleware(I18nMiddleware())
-    
-    from middlewares import SubscriptionMiddleware
+    # Middlewares
     dp.update.middleware(SubscriptionMiddleware())
+    dp.update.middleware(I18nMiddleware(locales_dir="locales", default_locale="uz"))
     
-    # Start Web Server for Health Check
+    # Web server start
     await start_web_server()
+
+    # Commands setup
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Boshlash"),
+        BotCommand(command="settings", description="Sozlamalar"),
+        BotCommand(command="lang", description="Tilni o'zgartirish"),
+        BotCommand(command="help", description="Yordam"),
+    ])
     
-    # Start Polling
     logger.info("🚀 Bot ishga tushdi!")
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+    
+    # Error Handler
+    @dp.error()
+    async def global_error_handler(event: ErrorEvent):
+        logger.critical(f"Global error: {event.exception}", exc_info=True)
+
+    # Start polling
+    await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     try:
+        if sys.platform == 'win32':
+             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("🛑 Bot to'xtatildi")
-    except Exception as e:
-        logger.error(f"❌ Kutilmagan xatolik: {e}")
+        logger.info("Bot stopped!")

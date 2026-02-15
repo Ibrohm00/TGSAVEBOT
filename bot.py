@@ -1205,13 +1205,9 @@ async def main():
     await init_db()
     
     # Session creation (Singleton)
-    # DNS Fix
-    from aiohttp.resolver import AsyncResolver
-    from aiohttp import TCPConnector
-    resolver = AsyncResolver(nameservers=["8.8.8.8", "1.1.1.1"])
-    connector = TCPConnector(resolver=resolver, family=2, ssl=False) # AF_INET=2
-
-    session = AiohttpSession(connector=connector)
+    session = IPv4Session()
+    # IPv4Session o'zi ichida connector yaratadi (create_session override qilingan bot tomondan chaqiriladi)
+    
     global bot
     bot = Bot(token=config.token, session=session)
     

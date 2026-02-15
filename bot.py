@@ -5,6 +5,7 @@ YouTube, Instagram, TikTok va boshqa platformalardan video/audio/rasm yuklab ber
 
 import asyncio
 import logging
+import sys
 import time
 from datetime import datetime
 from typing import Dict, Optional, Any

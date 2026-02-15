@@ -142,6 +142,11 @@ RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(100)
 
 
+class DownloadState(StatesGroup):
+    """Yuklash jarayoni holatlari"""
+    waiting_for_choice = State()
+
+
 async def system_startup_check():
     """Tizimni ishga tushirishdan oldin tekshirish"""
     logger.info("🛠️ System Startup Checks...")
@@ -183,18 +188,24 @@ def generate_caption(result: DownloadResult, name: str, emoji: str) -> str:
 # ============== Utility Functions ==============
 
 async def get_user_settings(user_id: int) -> dict:
-    """Foydalanuvchi sozlamalarini olish (DB + Cache)"""
-    if user_id not in user_settings:
-        # DB dan olish
-        db_settings = await db_get_settings(user_id)
+    """Foydalanuvchi sozlamalarini olish (Faqat preferences)"""
+    # Default settings
+    settings = {
+        'video_quality': config.default_video_quality,
+        'audio_quality': config.default_audio_quality,
+        'language': 'uz'
+    }
+    
+    # DB dan olish
+    user_data = await settings_col.find_one({"user_id": user_id})
+    if user_data:
+        settings.update(user_data)
         
-        user_settings[user_id] = {
-            'video_quality': db_settings.get('video_quality', config.default_video_quality),
-            'audio_quality': db_settings.get('audio_quality', config.default_audio_quality),
-            'pending_url': None,
-            'pending_platform': None,
-        }
-    return user_settings[user_id]
+    # Language ni alohida tekshirish (chunki u users collectionda ham bor)
+    lang = await get_user_language(user_id)
+    settings['language'] = lang
+    
+    return settings
 
 
 def check_rate_limit(user_id: int) -> bool:
@@ -682,8 +693,8 @@ async def process_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
 # ============== Link Handler ==============
 
 @router.message(F.text)
-async def handle_message(message: Message, t):
-    """Xabarlarni qayta ishlash (optimized)"""
+async def handle_message(message: Message, state: FSMContext, t):
+    """Xabarlarni qayta ishlash (optimized + FSM)"""
     user_id = message.from_user.id
     text = message.text.strip()
     
@@ -724,10 +735,9 @@ async def handle_message(message: Message, t):
     name = platform_info['name']
     supports = platform_info.get('supports', ['video'])
     
-    # URL va platformani saqlash (sync -> async)
-    settings = await get_user_settings(user_id)
-    settings['pending_url'] = url
-    settings['pending_platform'] = platform
+    # URL va platformani saqlash (FSM)
+    await state.update_data(url=url, platform=platform)
+    await state.set_state(DownloadState.waiting_for_choice)
     
     # Variant kerak bo'lgan platformalar
     needs_choice = (
@@ -932,16 +942,16 @@ async def process_download(
 # ============== Callbacks ==============
 
 @router.callback_query(F.data.startswith("dl:"))
-async def handle_download(callback: CallbackQuery, t):
-    """Yuklash callback (optimized)"""
+async def handle_download(callback: CallbackQuery, state: FSMContext, t):
+    """Yuklash callback (optimized + FSM)"""
     await callback.answer()
     
     action = callback.data.split(":")[1] if ":" in callback.data else "video"
     
-    # Saqlangan URL
-    settings = await get_user_settings(callback.from_user.id)
-    url = settings.get('pending_url')
-    platform = settings.get('pending_platform', 'youtube')
+    # Saqlangan URL (FSM)
+    data = await state.get_data()
+    url = data.get('url')
+    platform = data.get('platform', 'youtube')
     
     if not url:
         await safe_edit(
@@ -954,9 +964,8 @@ async def handle_download(callback: CallbackQuery, t):
     # Xabarni o'chirish
     await safe_delete(callback.message)
     
-    # Settings tozalash
-    settings['pending_url'] = None
-    settings['pending_platform'] = None
+    # FSM tozalash
+    await state.clear()
     
     # Media type va no_watermark
     no_watermark = (action == 'nowm')

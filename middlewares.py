@@ -73,4 +73,38 @@ class SubscriptionMiddleware(BaseMiddleware):
             await event.answer(text, reply_markup=keyboard, parse_mode="Markdown")
             return
             
+
+        return await handler(event, data)
+
+
+class ThrottlingMiddleware(BaseMiddleware):
+    def __init__(self, limit: float = 0.5):
+        self.limit = limit
+        self.storage: Dict[int, float] = {}
+
+    async def __call__(
+        self,
+        handler: Callable[[Union[Message, CallbackQuery], Dict[str, Any]], Awaitable[Any]],
+        event: Union[Message, CallbackQuery],
+        data: Dict[str, Any]
+    ) -> Any:
+        
+        user = data.get("event_from_user")
+        
+        if not user:
+            return await handler(event, data)
+        
+        # Adminlar uchun limit yo'q
+        if user.id in config.admin_ids:
+            return await handler(event, data)
+            
+        import time
+        now = time.time()
+        last_request = self.storage.get(user.id, 0)
+        
+        if now - last_request < self.limit:
+            # Silent drop (spamdan himoya)
+            return
+
+        self.storage[user.id] = now
         return await handler(event, data)

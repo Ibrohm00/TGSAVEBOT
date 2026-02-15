@@ -208,16 +208,18 @@ async def get_user_settings(user_id: int) -> dict:
     return settings
 
 
-def check_rate_limit(user_id: int) -> bool:
-    """Rate limitni tekshirish"""
-    now = time.time()
-    last_request = user_rate_limit[user_id]
-    
-    if now - last_request < RATE_LIMIT_SECONDS:
-        return False
-    
-    user_rate_limit[user_id] = now
-    return True
+def format_size(size_bytes: int) -> str:
+    """Fayl hajmini chiroyli formatlash"""
+    if not size_bytes:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB")
+    i = int(0)
+    import math
+    if size_bytes > 0:
+        i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return "%s %s" % (s, size_name[i])
 
 
 def escape_md(text: str) -> str:
@@ -734,14 +736,6 @@ async def handle_message(message: Message, state: FSMContext, t):
     # Aktiv statusini yangilash (bazaga qo'shish emas — /start da qilinadi)
     await set_user_active(user_id, True)
     
-    # Rate limit tekshirish
-    if not check_rate_limit(user_id):
-        await message.answer(
-            t("rate_limit"),
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-        return
-    
     # URL ni topish
     url = extract_url(text)
     
@@ -788,7 +782,10 @@ async def handle_message(message: Message, state: FSMContext, t):
     
     # To'g'ridan-to'g'ri yuklash
     media_type = supports[0] if supports else 'video'
-    await process_download(message, url, platform, media_type, t=t)
+    
+    # Katta fayllarni tekshirish (HEAD request)
+    # create_task da exception handling qiyin, shuning uchun process_download ichida hal qilinadi.
+    asyncio.create_task(process_download(message, url, platform, media_type, t=t))
 
 
 async def process_download(
@@ -1218,6 +1215,8 @@ async def main():
     bot = Bot(token=config.token, session=session)
     
     # Middlewares
+    from middlewares import SubscriptionMiddleware, ThrottlingMiddleware
+    dp.update.middleware(ThrottlingMiddleware(limit=0.5))
     dp.update.middleware(SubscriptionMiddleware())
     dp.update.middleware(I18nMiddleware(locales_dir="locales", default_locale="uz"))
     

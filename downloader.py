@@ -141,9 +141,9 @@ async def download_youtube(url: str, media_type: str = "video") -> DownloadResul
                     }
                 },
                 'http_headers': {
-                    'Accept-Language': 'en-US,en;q=0.9',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 },
+                'max_filesize': 50 * 1024 * 1024,  # 50MB limit
             }
             
             if media_type == "audio":
@@ -270,6 +270,7 @@ async def download_instagram(url: str) -> DownloadResult:
             'merge_output_format': 'mp4',
             'force_ipv4': True,
             'user_agent': REAL_USER_AGENT,
+            'max_filesize': 50 * 1024 * 1024,  # 50MB limit
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -532,6 +533,7 @@ async def download_generic(url: str, platform: str) -> DownloadResult:
             },
             'force_ipv4': True,
             'user_agent': REAL_USER_AGENT,
+            'max_filesize': 50 * 1024 * 1024,  # 50MB limit
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

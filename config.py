@@ -157,62 +157,6 @@ SUPPORTED_PLATFORMS = {
 }
 
 
-# Xabarlar
-MESSAGES = {
-    'start': """
-🎬 *Media Downloader Bot*
-
-YouTube, Instagram, TikTok va boshqa platformalardan video, rasm, musiqa yuklab beraman\\.
-
-*Qo'llab\\-quvvatlanadigan platformalar:*
-🎬 YouTube \\(video \\+ MP3\\)
-📸 Instagram \\(reels, post\\)
-🎵 TikTok \\(video \\+ audio\\)
-🐦 Twitter/X
-📘 Facebook
-📌 Pinterest
-
-📥 *Foydalanish:* Shunchaki link yuboring\\!
-""",
-    
-    'help': """
-ℹ️ *Yordam*
-
-*Buyruqlar:*
-/start \\- Boshlash
-/help \\- Yordam
-/settings \\- Sozlamalar
-
-*Qanday foydalanish:*
-1\\. Platformadan link ko'chiring
-2\\. Menga yuboring
-3\\. Men yuklab beraman\\!
-
-*Limitlar:*
-📦 Max hajm: 50MB
-⏱ Max davomiylik: 10 daqiqa
-""",
-    
-    'settings': """
-⚙️ *Sozlamalar*
-
-🎬 Video sifati: {video_quality}
-🎵 Audio sifati: {audio_quality}
-
-Tanlang:
-""",
-    
-    'downloading': "📥 Yuklanmoqda\\.\\.\\.",
-    'processing': "⚙️ Qayta ishlanmoqda\\.\\.\\.",
-    'uploading': "📤 Telegram'ga yuklanmoqda\\.\\.\\.",
-    
-    'error_no_link': "❌ Link topilmadi\\. Iltimos, to'g'ri link yuboring\\.",
-    'error_unsupported': "❌ Bu platforma qo'llab\\-quvvatlanmaydi\\.",
-    'error_too_long': "❌ Video juda uzun \\(max 10 daqiqa\\)\\.",
-    'error_too_large': "❌ Fayl juda katta \\(max 50MB\\)\\.",
-    'error_download': "❌ Yuklab bo'lmadi: {error}",
-    'error_private': "❌ Bu kontent maxfiy yoki mavjud emas\\.",
-}
 
 
 # Config instance

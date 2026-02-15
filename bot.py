@@ -26,7 +26,7 @@ class BroadcastState(StatesGroup):
     waiting_for_message = State()
     confirm_send = State()
 
-from config import config, MESSAGES, SUPPORTED_PLATFORMS
+from config import config, SUPPORTED_PLATFORMS
 from downloader import (
     detect_platform, extract_url, download_media, DownloadResult
 )

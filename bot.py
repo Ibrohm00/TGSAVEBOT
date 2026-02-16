@@ -13,13 +13,14 @@ from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import (
-    Message, CallbackQuery, 
+    Message, CallbackQuery, BotCommand,
     InlineKeyboardButton, InlineKeyboardMarkup,
     BufferedInputFile, FSInputFile
 )
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+from aiogram.types import ErrorEvent
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 

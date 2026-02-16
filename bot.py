@@ -9,18 +9,16 @@ import sys
 import time
 from datetime import datetime
 from typing import Dict, Optional, Any
-from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import (
-    Message, CallbackQuery, BotCommand,
+    Message, CallbackQuery, BotCommand, ErrorEvent,
     InlineKeyboardButton, InlineKeyboardMarkup,
     BufferedInputFile, FSInputFile
 )
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter, TelegramNetworkError, TelegramEntityTooLarge
-from aiogram.types import ErrorEvent
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -134,12 +132,7 @@ dp = Dispatcher()
 router = Router()
 dp.include_router(router)
 
-# User settings cache (Transient state + cached settings)
-user_settings: Dict[int, dict] = {}
-
-# Rate limiting
-user_rate_limit: Dict[int, float] = defaultdict(float)
-RATE_LIMIT_SECONDS = 1  # Har 1 sekundda 1 ta so'rov
+# Concurrency control only (rate limiting now handled by ThrottlingMiddleware)
 
 # Concurrency Limiting (High Load Strategy)
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(100)
@@ -906,7 +899,6 @@ async def process_download(
             )
             
             # Caption yaratish
-            # Caption yaratish
             caption = generate_caption(result, name, emoji)
             
             # Media yuborish (Safe Wrapper orqali)
@@ -1068,14 +1060,12 @@ async def handle_help(callback: CallbackQuery, t):
 
 
 @router.callback_query(F.data.in_({"cancel", "back"}))
-async def handle_cancel(callback: CallbackQuery):
+async def handle_cancel(callback: CallbackQuery, state: FSMContext):
     """Bekor qilish"""
     await callback.answer("❌ Bekor qilindi")
     
-    # Pending URL tozalash
-    settings = await get_user_settings(callback.from_user.id)
-    settings['pending_url'] = None
-    settings['pending_platform'] = None
+    # FSM holatini tozalash
+    await state.clear()
     
     await safe_delete(callback.message)
 

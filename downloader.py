@@ -330,6 +330,7 @@ async def download_twitter(url: str) -> DownloadResult:
             'merge_output_format': 'mp4',
             'force_ipv4': True,
             'user_agent': REAL_USER_AGENT,
+            'max_filesize': 50 * 1024 * 1024,  # 50MB limit
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -606,6 +607,7 @@ async def download_soundcloud(url: str) -> DownloadResult:
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
             'user_agent': REAL_USER_AGENT,
+            'max_filesize': 50 * 1024 * 1024,  # 50MB limit
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -721,6 +723,7 @@ async def download_likee(url: str) -> DownloadResult:
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
             'user_agent': REAL_USER_AGENT,
+            'max_filesize': 50 * 1024 * 1024,  # 50MB limit
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -818,6 +821,7 @@ async def download_tiktok(url: str, no_watermark: bool = False) -> DownloadResul
             'socket_timeout': config.download_timeout,
             'force_ipv4': True,
             'user_agent': REAL_USER_AGENT,
+            'max_filesize': 50 * 1024 * 1024,  # 50MB limit
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

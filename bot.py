@@ -19,7 +19,7 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter, TelegramNetworkError, TelegramEntityTooLarge
 from aiogram.types import ErrorEvent
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -36,7 +36,8 @@ from database import (
     init_db, add_user, get_settings as db_get_settings, update_settings, 
     set_user_active, get_users_count, get_active_users_count, 
     get_new_users_today, get_all_users, get_last_users,
-    add_cached_file, get_cached_file
+    add_cached_file, get_cached_file,
+    settings_col, get_user_language
 )
 
 # Logging

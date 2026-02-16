@@ -1216,7 +1216,7 @@ async def main():
     from i18n_middleware import I18nMiddleware
     dp.update.middleware(ThrottlingMiddleware(limit=0.5))
     dp.update.middleware(SubscriptionMiddleware())
-    dp.update.middleware(I18nMiddleware(locales_dir="locales", default_locale="uz"))
+    dp.update.middleware(I18nMiddleware())
     
     # Web server start
     await start_web_server()
